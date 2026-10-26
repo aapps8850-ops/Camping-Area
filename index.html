@@ -2,145 +2,2936 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>粗坑露營區 - 線上預約</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>粗坑露營區｜線上預約訂位・匯款回報・訂單查詢</title>
+  <script>
+    // 綁定您的 Google Apps Script 後端正式部署網址
+    window.__GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxFKXeLKJblEKUl55FvOAU87BHMDviImgrta6LroZs9hnn27mnfZJQkFzsRurAXDYdD/exec";
+
+    // 1. 預先定義圖片載入與備援切換函式於 <head>，防止圖片極速載入時發生 ReferenceError
+    window.__mapFallbackAttempted = false;
+    window.handleMapImageLoaded = function() {
+      var warn = document.getElementById('mapFallbackWarning');
+      var stage = document.getElementById('mapStageWrapper');
+      if (warn) warn.style.display = 'none';
+      if (stage) stage.style.display = 'block';
+    };
+    window.handleMapImageError = function() {
+      var img = document.getElementById('campsiteMapImg');
+      if (img && !window.__mapFallbackAttempted) {
+        window.__mapFallbackAttempted = true;
+        img.src = 'https://lh3.googleusercontent.com/d/1rRgBK8EpQ7SAYEhVnYGyFWyGUQxhsQ8K=w1600';
+        return;
+      }
+      var stage = document.getElementById('mapStageWrapper');
+      var warn = document.getElementById('mapFallbackWarning');
+      if (stage) stage.style.display = 'none';
+      if (warn) warn.style.display = 'block';
+    };
+
+    // 2. 伺服器端 Sheet 價格 0 秒直出注入區 (若於 GAS 內開啟則 0 秒生效；若於 GitHub Pages 開啟則自動跳過並由 API 即時載入)
+    window.__SERVER_INJECTED_RATES = null;
+  </script>
+  <!--<?!= (function() {
+    try {
+      var ss = (typeof getTargetSpreadsheet_ === 'function') ? getTargetSpreadsheet_() : SpreadsheetApp.getActiveSpreadsheet();
+      if (!ss) return '';
+      var sh = ss.getSheetByName('營區設定與價格');
+      if (!sh) return '';
+      var vals = sh.getDataRange().getValues();
+      var sites = {};
+      var zones = {};
+      var rules = {};
+      for (var r = 1; r < vals.length; r++) {
+        var row = vals[r];
+        var sid = String(row[0] || '').trim().toUpperCase();
+        if (/^[ABCD][1-6]$/.test(sid)) {
+          var z = sid.charAt(0);
+          var wk = Number(String(row[5] || '').replace(/[,$元]/g, ''));
+          var hol = Number(String(row[6] || '').replace(/[,$元]/g, ''));
+          var stStr = String(row[9] || '啟用').trim();
+          var enabled = !(stStr === '停用' || stStr === '關閉' || stStr.toUpperCase() === 'FALSE');
+          if (!isNaN(wk) && wk > 0 && !isNaN(hol) && hol > 0) {
+            sites[sid] = { weekday: wk, holiday: hol, enabled: enabled };
+            if (!zones[z] && enabled) {
+              zones[z] = { weekday: wk, holiday: hol };
+            }
+          }
+        }
+        var mKey = String(row[12] || '').trim();
+        var nVal = row[13];
+        if (mKey && nVal !== null && nVal !== undefined && nVal !== '') {
+          if (Object.prototype.toString.call(nVal) === '[object Date]') {
+            rules[mKey] = Utilities.formatDate(nVal, 'Asia/Taipei', 'HH:mm');
+          } else {
+            rules[mKey] = String(nVal).trim();
+          }
+        }
+      }
+      var pUnit = (rules.EXTRA_PERSON_FEE !== undefined && rules.EXTRA_PERSON_FEE !== '' && !isNaN(Number(rules.EXTRA_PERSON_FEE))) ? Number(rules.EXTRA_PERSON_FEE) : 200;
+      var cUnit = (rules.EXTRA_CAR_FEE !== undefined && rules.EXTRA_CAR_FEE !== '' && !isNaN(Number(rules.EXTRA_CAR_FEE))) ? Number(rules.EXTRA_CAR_FEE) : 200;
+      return '-->' + '<script>window.__SERVER_INJECTED_RATES=' + JSON.stringify({
+        sites: sites,
+        zones: zones,
+        extraPersonUnitFee: pUnit,
+        extraCarUnitFee: cUnit,
+        rules: rules
+      }) + ';</script>' + '<!--';
+    } catch (e) { return ''; }
+  })() ?>-->
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f8fafc;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      padding: 20px;
-      color: #1e293b;
+    :root {
+      --primary: #1f4e3d;
+      --primary-light: #2d6a54;
+      --primary-dark: #143529;
+      --accent: #d97706;
+      --bg-warm: #f7f5f0;
+      --card-bg: #ffffff;
+      --text-main: #1f2937;
+      --text-muted: #4b5563;
+      --border-color: #d1d5db;
+      --green-avail: #16a34a;
+      --green-bg: #dcfce7;
+      --yellow-warn: #ca8a04;
+      --yellow-bg: #fef9c3;
+      --red-full: #dc2626;
+      --red-bg: #fee2e2;
+      --purple-pair: #7c3aed;
+      --purple-bg: #ede9fe;
+      --blue-info: #1d4ed8;
+      --blue-bg: #dbeafe;
+      --gray-disabled: #9ca3af;
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+      --radius-md: 10px;
+      --radius-lg: 14px;
     }
-    .card {
-      background: #ffffff;
-      padding: 32px 20px;
-      border-radius: 20px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.06);
-      max-width: 420px;
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
       width: 100%;
-      text-align: center;
-      position: relative;
+      max-width: 100%;
+      overflow-x: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      background-color: var(--bg-warm);
+      color: var(--text-main);
+      line-height: 1.6;
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
     }
-    .icon { font-size: 44px; margin-bottom: 8px; }
-    h2 { font-size: 22px; margin-bottom: 12px; font-weight: 700; }
-    
-    /* iOS 專用引導樣式 */
-    .ios-box {
-      background: #fff1f2;
-      border: 2px dashed #f43f5e;
-      border-radius: 16px;
-      padding: 20px 16px;
-      margin-top: 15px;
-      text-align: left;
+
+    a { color: var(--primary); text-decoration: none; }
+    button, input, select, textarea { font-family: inherit; font-size: 1rem; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 2px;
     }
-    .ios-box h3 {
-      color: #e11d48;
-      font-size: 17px;
-      margin-bottom: 10px;
+
+    /* 頂部導覽列 */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    }
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .brand-title {
       display: flex;
       align-items: center;
-      gap: 6px;
-    }
-    .step-item {
-      font-size: 15px;
-      line-height: 1.8;
-      color: #475569;
-      margin-bottom: 6px;
-    }
-    .badge {
-      background: #e11d48;
-      color: white;
-      padding: 2px 8px;
-      border-radius: 6px;
+      gap: 8px;
+      font-size: 1.25rem;
       font-weight: 700;
-      font-size: 13px;
-    }
-    .highlight {
-      font-weight: 700;
-      color: #0f172a;
-    }
-
-    /* 手指引導指示 */
-    .top-pointer {
-      position: fixed;
-      top: 12px;
-      right: 20px;
-      font-size: 28px;
-      animation: bounce 1.2s infinite;
-    }
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
-    }
-
-    /* Android 按鈕 */
-    .android-btn {
-      display: none;
-      background: #2563eb;
       color: #ffffff;
-      text-decoration: none;
-      padding: 16px 20px;
-      border-radius: 12px;
-      font-size: 17px;
+    }
+    .brand-subtitle {
+      font-size: 0.78rem;
+      background: rgba(255, 255, 255, 0.18);
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .nav-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .nav-tab-btn {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 0.92rem;
       font-weight: 600;
-      box-shadow: 0 4px 14px rgba(37,99,235,0.3);
-      margin-top: 15px;
+      cursor: pointer;
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .nav-tab-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    /* 主容器與卡片 */
+    .main-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 16px 60px;
+      width: 100%;
+    }
+    .section-card {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      padding: 22px;
+      margin-bottom: 24px;
+      border: 1px solid #e5e7eb;
+    }
+    .section-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #f3f4f6;
+    }
+    .section-title {
+      font-size: 1.22rem;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-badge {
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 0.85rem;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+
+    /* 提示框 */
+    .alert-box {
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .alert-danger { background: var(--red-bg); border-left: 5px solid var(--red-full); color: #991b1b; }
+    .alert-warning { background: #fffbeb; border-left: 5px solid var(--accent); color: #92400e; }
+    .alert-info { background: #eff6ff; border-left: 5px solid #2563eb; color: #1e40af; }
+    .alert-success { background: var(--green-bg); border-left: 5px solid var(--green-avail); color: #166534; }
+
+    /* 營區價目表 */
+    .camp-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .zone-price-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: var(--radius-md);
+      padding: 14px;
+      border-left: 5px solid var(--primary);
+    }
+    .zone-name { font-weight: 700; font-size: 1.02rem; color: var(--primary-dark); margin-bottom: 4px; }
+    .zone-meta { font-size: 0.84rem; color: var(--text-muted); margin-bottom: 8px; }
+    .zone-prices { display: flex; gap: 10px; font-size: 0.92rem; font-weight: 700; min-height: 24px; align-items: center; }
+    .price-holiday { color: var(--red-full); }
+    .price-weekday { color: var(--primary); }
+    .price-loading-chip {
+      display: inline-block;
+      font-size: 0.8rem;
+      color: #6b7280;
+      background: #e5e7eb;
+      padding: 1px 8px;
+      border-radius: 4px;
+    }
+
+    .rules-highlight-bar {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      color: var(--primary-dark);
+      font-size: 0.92rem;
+    }
+
+    /* 步驟一：月曆 */
+    .calendar-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .month-nav { display: flex; align-items: center; gap: 10px; }
+    .btn-icon {
+      min-width: 44px;
+      min-height: 44px;
+      border: 1px solid var(--border-color);
+      background: #ffffff;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+    .current-month-label { font-size: 1.15rem; font-weight: 700; color: var(--primary-dark); min-width: 135px; text-align: center; }
+    .calendar-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.85rem; color: var(--text-muted); }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+    .calendar-grid-header {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      text-align: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      padding: 8px 0;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+    }
+    .calendar-grid-header div:first-child, .calendar-grid-header div:last-child { color: var(--red-full); }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      border-top: 1px solid #e5e7eb;
+      border-left: 1px solid #e5e7eb;
+      border-radius: 0 0 8px 8px;
+      overflow: hidden;
+    }
+    .cal-cell {
+      min-height: 76px;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 5px 4px;
+      background: #ffffff;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      user-select: none;
+    }
+    .cal-cell.empty, .cal-cell.disabled-past { background: #f9fafb; color: #cbd5e1; cursor: not-allowed; }
+    .cal-cell:hover:not(.empty):not(.disabled-past) { background: #f0fdf4; }
+    .cal-cell.selected-checkin { background: var(--primary) !important; color: #ffffff !important; }
+    .cal-cell.selected-checkout { background: var(--accent) !important; color: #ffffff !important; }
+    .cal-cell.in-range { background: #d1fae5 !important; color: var(--primary-dark) !important; }
+    .cal-top-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 2px; }
+    .cal-day-num { font-weight: 700; font-size: 0.92rem; }
+    .cal-holiday-tag {
+      font-size: 0.68rem;
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: #fee2e2;
+      color: #b91c1c;
+      font-weight: 600;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cal-holiday-tag.make-up { background: #e0e7ff; color: #1d4ed8; }
+    .cal-cell.selected-checkin .cal-holiday-tag, .cal-cell.selected-checkout .cal-holiday-tag {
+      background: rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+    }
+    .cal-status-pill {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 4px;
+      border-radius: 4px;
+      text-align: center;
+      margin-top: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .light-GREEN { background: var(--green-bg); color: #15803d; }
+    .light-YELLOW { background: var(--yellow-bg); color: #a16207; }
+    .light-RED { background: var(--red-bg); color: #b91c1c; }
+    .cal-role-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-align: center;
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 3px;
+      padding: 1px 2px;
+      margin-top: 2px;
+    }
+    .date-selection-summary {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    /* 步驟二：1.jpg 配置圖與選位 */
+    .tent-mode-selector {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .tent-mode-card {
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      cursor: pointer;
+      background: #ffffff;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .tent-mode-card.active { border-color: var(--primary); background: #f0fdf4; }
+    .tent-mode-card.large-tent.active { border-color: var(--purple-pair); background: var(--purple-bg); }
+    .large-tent-pair-box {
+      background: var(--purple-bg);
+      border: 1px solid #c4b5fd;
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      display: none;
+    }
+    .large-tent-pair-box.visible { display: block; }
+    .pair-btn-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+    .pair-select-btn {
+      min-height: 46px;
+      padding: 10px 18px;
+      border-radius: var(--radius-md);
+      border: 2px solid var(--purple-pair);
+      background: #ffffff;
+      color: var(--purple-pair);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .pair-select-btn.selected { background: var(--purple-pair); color: #ffffff; }
+    .pair-select-btn:disabled { border-color: var(--gray-disabled); background: #f3f4f6; color: var(--gray-disabled); cursor: not-allowed; }
+
+    .map-stage-wrapper {
+      width: 100%;
+      max-width: 860px;
+      margin: 0 auto 18px;
+      border: 2px solid #d1d5db;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: #e5e7eb;
+    }
+    .map-toolbar {
+      background: #1f2937;
+      color: #ffffff;
+      padding: 8px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.85rem;
+    }
+    .map-status-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.8rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .map-relative-container {
+      position: relative;
+      width: 100%;
+      display: block;
+      line-height: 0;
+      user-select: none;
+    }
+    .campsite-map-img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* 營位點擊熱區 */
+    .site-hotspot {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      min-width: 44px;
+      min-height: 44px;
+      width: 6.6%;
+      aspect-ratio: 1 / 1;
+      padding: 2px;
+      border-radius: 50%;
+      font-size: clamp(0.72rem, 1.5vw, 0.92rem);
+      font-weight: 800;
+      line-height: 1.05;
+      border: 2.5px solid #ffffff;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.42);
+      transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+      z-index: 10;
+    }
+    .site-hotspot.size-a { width: 5.8%; }
+    .site-hotspot.size-c { width: 8.2%; font-size: clamp(0.78rem, 1.7vw, 1.02rem); }
+
+    .site-hotspot .site-sub-label {
+      font-size: clamp(0.56rem, 1.1vw, 0.68rem);
+      font-weight: 700;
+      margin-top: 1px;
+      white-space: nowrap;
+    }
+    .site-hotspot.state-available {
+      background-color: rgba(22, 163, 74, 0.92);
+      color: #ffffff;
+    }
+    .site-hotspot.state-available:hover {
+      transform: translate(-50%, -50%) scale(1.1);
+      background-color: #15803d;
+      z-index: 25;
+    }
+    .site-hotspot.state-occupied {
+      background-color: rgba(75, 85, 99, 0.92);
+      color: #d1d5db;
+      border-color: #9ca3af;
+      cursor: not-allowed;
+    }
+    .site-hotspot.state-selected {
+      background-color: #ea580c;
+      color: #ffffff;
+      border-color: #fef08a;
+      box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.45), 0 4px 10px rgba(0, 0, 0, 0.45);
+      transform: translate(-50%, -50%) scale(1.12);
+      z-index: 20;
+    }
+    .site-hotspot.state-paired {
+      background-color: var(--purple-pair);
+      color: #ffffff;
+      border-color: #ddd6fe;
+      box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.45), 0 4px 10px rgba(0, 0, 0, 0.45);
+      transform: translate(-50%, -50%) scale(1.12);
+      z-index: 20;
+    }
+
+    .fallback-text-list-wrapper {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+    .zone-group-row { margin-bottom: 14px; }
+    .zone-group-title { font-size: 0.95rem; font-weight: 700; color: var(--primary-dark); margin-bottom: 8px; }
+    .site-pill-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .site-pill-btn {
+      min-width: 88px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      cursor: pointer;
+      border: 2px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .site-pill-btn.state-available { background: #ffffff; border-color: var(--green-avail); color: #15803d; }
+    .site-pill-btn.state-occupied { background: #e5e7eb; border-color: #d1d5db; color: #6b7280; cursor: not-allowed; text-decoration: line-through; }
+    .site-pill-btn.state-selected { background: #ea580c; border-color: #c2410c; color: #ffffff; }
+    .site-pill-btn.state-paired { background: var(--purple-pair); border-color: #5b21b6; color: #ffffff; }
+
+    /* 步驟三：表單與試算 */
+    .booking-form-layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 24px; align-items: start; }
+    .form-grid-2col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+    .required-star { color: var(--red-full); margin-left: 3px; }
+    .form-control {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border-color);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+    .form-control.input-error { border-color: var(--red-full); background: #fef2f2; }
+    .field-hint { font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; }
+    .field-error-msg { font-size: 0.84rem; color: var(--red-full); font-weight: 600; margin-top: 4px; display: none; }
+    .field-error-msg.visible { display: block; }
+    .email-warning-banner {
+      background: #fff7ed;
+      border: 1.5px solid #fdba74;
+      color: #9a3412;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      margin-top: 6px;
+    }
+    .quote-summary-panel {
+      background: #f8fafc;
+      border: 2px solid var(--primary);
+      border-radius: var(--radius-md);
+      padding: 18px;
+    }
+    .quote-title { font-size: 1.1rem; font-weight: 700; color: var(--primary); padding-bottom: 10px; border-bottom: 1px solid #cbd5e1; margin-bottom: 12px; }
+    .quote-row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 0.94rem; }
+    .quote-total-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 12px;
+      margin-top: 12px;
+      border-top: 2px dashed #cbd5e1;
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--red-full);
+    }
+    .nightly-detail-list {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 8px 0 12px;
+      font-size: 0.82rem;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    .rules-agreement-box {
+      background: #fffbeb;
+      border: 2px solid #f59e0b;
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin: 18px 0;
+    }
+    .rules-list { padding-left: 20px; font-size: 0.9rem; color: #78350f; margin-bottom: 12px; }
+    .checkbox-consent-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 0.94rem;
+      color: #991b1b;
+      cursor: pointer;
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 1px solid #fcd34d;
+    }
+    .checkbox-consent-label input[type="checkbox"] { width: 22px; height: 22px; margin-top: 2px; flex-shrink: 0; accent-color: var(--primary); }
+
+    .btn-primary-lg {
+      width: 100%;
+      min-height: 52px;
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 1.08rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+    }
+    .btn-primary-lg:disabled { background: var(--gray-disabled); cursor: not-allowed; }
+    .btn-secondary {
+      min-height: 42px;
+      padding: 8px 14px;
+      background: #ffffff;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* 階段二、三與聯絡區塊 */
+    .order-result-card { border: 1.5px solid #cbd5e1; border-radius: var(--radius-md); padding: 18px; margin-bottom: 16px; background: #ffffff; }
+    .status-badges-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .dim-badge { font-size: 0.82rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+    .badge-green { background: var(--green-bg); color: #166534; border: 1px solid #86efac; }
+    .badge-yellow { background: var(--yellow-bg); color: #854d0e; border: 1px solid #fde047; }
+    .badge-red { background: var(--red-bg); color: #991b1b; border: 1px solid #fca5a5; }
+    .badge-purple { background: var(--purple-bg); color: #5b21b6; border: 1px solid #c4b5fd; }
+    .badge-blue { background: var(--blue-bg); color: var(--blue-info); border: 1px solid #93c5fd; }
+
+    .contact-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 22px; }
+    .contact-item-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: var(--radius-md); padding: 18px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
+    .btn-contact-action { min-height: 44px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; color: #ffffff; padding: 10px 16px; }
+    .btn-line { background: #06c755; }
+    .btn-fb { background: #1877f2; }
+    .btn-phone { background: var(--primary); }
+
+    .map-integration-grid { display: grid; grid-template-columns: 340px 1fr; gap: 18px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: var(--radius-md); overflow: hidden; }
+    .map-info-panel { padding: 22px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+    .map-iframe-container { width: 100%; min-height: 320px; }
+    .map-iframe-container iframe { width: 100%; height: 100%; min-height: 320px; border: 0; display: block; }
+
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+
+    @media (max-width: 1024px) {
+      .booking-form-layout { grid-template-columns: 1fr; }
+      .map-integration-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      .header-inner { flex-direction: column; align-items: stretch; }
+      .nav-tab-btn { flex: 1 1 calc(50% - 6px); justify-content: center; font-size: 0.86rem; }
+      .section-card { padding: 16px 12px; }
+      .form-grid-2col { grid-template-columns: 1fr; }
+      .cal-cell { min-height: 64px; padding: 3px 2px; }
+      .cal-status-pill { font-size: 0.65rem; }
+    }
+    @media (max-width: 420px) {
+      .main-container { padding: 12px 8px 48px; }
+      .cal-day-num { font-size: 0.82rem; }
+      .cal-holiday-tag { font-size: 0.6rem; }
     }
   </style>
 </head>
 <body>
 
-  <!-- 螢幕右上角指示手指 -->
-  <div id="top-hand" class="top-pointer" style="display: none;">👉 <span style="font-size: 14px; font-weight: bold; color: #e11d48; background: white; padding: 4px 8px; border-radius: 6px; border: 1px solid #fda4af;">點這裡</span></div>
-
-  <div class="card">
-    <div class="icon">🏕️</div>
-    <h2>粗坑露營區 線上預約</h2>
-
-    <!-- iOS Facebook 訪客顯示此區塊 -->
-    <div id="ios-block" class="ios-box" style="display: none;">
-      <h3>📌 開啟預約系統步驟</h3>
-      <div class="step-item">
-        <span class="badge">步驟 1</span> 請看螢幕<strong>右上角</strong>或<strong>右下角</strong>的圖示 <span class="highlight">「⋯」</span>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand-title">
+        <span>🏕️ 粗坑露營區</span>
+        <span class="brand-subtitle">宜蘭員山・線上訂位</span>
       </div>
-      <div class="step-item">
-        <span class="badge">步驟 2</span> 點選選單中的 <span class="highlight">「在 Safari 中開啟」</span>
+      <nav class="nav-tabs" aria-label="主要功能選單">
+        <button type="button" class="nav-tab-btn active" onclick="switchMainView('booking')" id="tabBtn-booking">📅 線上預約訂位</button>
+        <button type="button" class="nav-tab-btn" onclick="switchMainView('report')" id="tabBtn-report">💳 填寫匯款回報</button>
+        <button type="button" class="nav-tab-btn" onclick="switchMainView('query')" id="tabBtn-query">🔍 訂單狀態查詢</button>
+        <button type="button" class="nav-tab-btn" onclick="scrollToContactSection()">📍 聯絡與地圖</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <div id="globalSystemBanner" style="display:none;"></div>
+
+    <!-- 營區價目與規定總覽 -->
+    <section class="section-card">
+      <div class="section-header">
+        <h1 class="section-title">🌲 營區區域價目表與入退營規定</h1>
+        <span style="font-size:0.85rem; color:var(--text-muted);">每帳基礎額度：4人 / 1車 / 1帳篷 / 1炊事帳</span>
       </div>
-      <p style="font-size: 12px; color: #94a3b8; margin-top: 10px;">（因 Facebook 瀏覽器相容性限制，請跳出至 Safari 即可順暢填寫）</p>
+      <div class="camp-overview-grid">
+        <div class="zone-price-card">
+          <div class="zone-name">雨棚 A 區（A1 ~ A4）</div>
+          <div class="zone-meta">尺寸 4.5 × 6 米｜共 4 帳</div>
+          <div class="zone-prices">
+            <span class="price-holiday" id="zonePriceA_hol"><span class="price-loading-chip">讀取價目中...</span></span>
+            <span class="price-weekday" id="zonePriceA_wk"></span>
+          </div>
+        </div>
+        <div class="zone-price-card">
+          <div class="zone-name">雨棚 B 區（B1 ~ B6）</div>
+          <div class="zone-meta">獨立雨棚營位｜共 6 帳</div>
+          <div class="zone-prices">
+            <span class="price-holiday" id="zonePriceB_hol"><span class="price-loading-chip">讀取價目中...</span></span>
+            <span class="price-weekday" id="zonePriceB_wk"></span>
+          </div>
+        </div>
+        <div class="zone-price-card">
+          <div class="zone-name">碎石 C 區（C1 ~ C3）</div>
+          <div class="zone-meta">支援大型帳篷配對｜共 3 帳</div>
+          <div class="zone-prices">
+            <span class="price-holiday" id="zonePriceC_hol"><span class="price-loading-chip">讀取價目中...</span></span>
+            <span class="price-weekday" id="zonePriceC_wk"></span>
+          </div>
+        </div>
+        <div class="zone-price-card">
+          <div class="zone-name">碎石 D 區（D1 ~ D3）</div>
+          <div class="zone-meta">附 6 × 6 米大雨棚｜共 3 帳</div>
+          <div class="zone-prices">
+            <span class="price-holiday" id="zonePriceD_hol"><span class="price-loading-chip">讀取價目中...</span></span>
+            <span class="price-weekday" id="zonePriceD_wk"></span>
+          </div>
+        </div>
+      </div>
+      <div class="rules-highlight-bar">
+        <strong>⏰ 入退營時間：</strong>
+        <span id="ruleTimeDisplay">正式入營 12:00 後｜最晚到營 22:00 前｜退營時間 12:00 前</span>
+        <div style="font-size:0.84rem; margin-top:4px;">
+          ※ 晚上 10:00 ～ 早上 08:00 為夜間寧靜管制時段，請勿大聲喧嘩，共同維護露友睡眠品質。
+        </div>
+      </div>
+    </section>
+
+    <!-- 視圖 1：線上預約訂位 -->
+    <div id="view-booking" class="view-panel active">
+
+      <!-- 步驟一：未來六個月房況月曆 -->
+      <section class="section-card" id="step1Section">
+        <div class="section-header">
+          <h2 class="section-title"><span class="step-badge">步驟一</span> 選取「入住日期」與「退營日期」（未來六個月房況）</h2>
+          <button type="button" class="btn-secondary" onclick="resetDateSelection()">🔄 重新選取日期</button>
+        </div>
+
+        <div class="alert-info alert-box">
+          💡 <strong>跨日占位與計價規則：</strong>「入住日」計入住宿夜晚，「退營日」不計入住宿夜晚（例如 10/16 入住、10/19 退營，實際住宿 16、17、18 共三晚）。請先點選<strong>入住日</strong>，再點選<strong>退營日</strong>。
+        </div>
+
+        <div class="calendar-controls">
+          <div class="month-nav">
+            <button type="button" class="btn-icon" id="prevMonthBtn" onclick="changeCalendarMonth(-1)">◀</button>
+            <div class="current-month-label" id="currentMonthTitle">載入中...</div>
+            <button type="button" class="btn-icon" id="nextMonthBtn" onclick="changeCalendarMonth(1)">▶</button>
+          </div>
+          <div class="calendar-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:var(--green-avail);"></span>綠燈：空位充裕</span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--yellow-warn);"></span>黃燈：快滿(≤5帳)</span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--red-full);"></span>紅燈：已客滿(僅可作退營日)</span>
+          </div>
+        </div>
+
+        <div class="calendar-grid-header">
+          <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+        </div>
+        <div class="calendar-grid" id="calendarGridContainer"></div>
+
+        <div class="date-selection-summary">
+          <div>
+            <strong>📅 目前選取住宿區間：</strong>
+            <span id="selectedDateRangeText">尚未選取（請點擊上方月曆選擇入住日與退營日）</span>
+          </div>
+          <div id="selectedNightsBadge" style="font-weight:700; color:var(--primary);"></div>
+        </div>
+      </section>
+
+      <!-- 步驟二：1.jpg 看圖選位 -->
+      <section class="section-card" id="step2Section">
+        <div class="section-header">
+          <h2 class="section-title"><span class="step-badge">步驟二</span> 看圖直覺選位（點擊配置圖圓圈或下方清單）</h2>
+        </div>
+
+        <div id="step2LockNotice" class="alert-warning alert-box">
+          👆 請先於「步驟一」完成選取<strong>入住日期</strong>與<strong>退營日期</strong>，系統將自動載入該區間連續可訂之營位配置圖！
+        </div>
+
+        <div id="step2InteractiveContent" style="display:none;">
+          <div class="tent-mode-selector">
+            <div class="tent-mode-card active" id="modeCard-normal" onclick="setTentMode('一般帳篷')">
+              <input type="radio" name="tentTypeRadio" id="radioNormalTent" value="一般帳篷" checked style="margin-top:4px; width:18px; height:18px;">
+              <div>
+                <div style="font-weight:700; color:var(--primary-dark);">⛺ 一般標準帳篷（可自由複選營位）</div>
+                <div style="font-size:0.84rem; color:var(--text-muted);">適用於 A、B、C、D 各區，每選 1 個營位計 1 帳費用（含 4人/1車額度）。</div>
+              </div>
+            </div>
+            <div class="tent-mode-card large-tent" id="modeCard-large" onclick="setTentMode('大型帳篷')">
+              <input type="radio" name="tentTypeRadio" id="radioLargeTent" value="大型帳篷" style="margin-top:4px; width:18px; height:18px;">
+              <div>
+                <div style="font-weight:700; color:var(--purple-pair);">🎪 特殊大型帳篷（神殿、怪獸帳、5×8大天幕等）</div>
+                <div style="font-size:0.84rem; color:var(--text-muted);">僅限碎石 C 區！強制綁定配對「C1+C2」或「C2+C3」，占用 2 營位、收 2 帳費用（享 8人/2車額度）。</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="large-tent-pair-box" id="largeTentPairBox">
+            <div style="font-weight:700; color:var(--purple-pair);">
+              🔒 【C 區大型帳篷原子化配對選擇】請選擇一組連續可用配對（兩個營位將一起鎖定、一起釋放）：
+            </div>
+            <div class="pair-btn-group">
+              <button type="button" class="pair-select-btn" id="pairBtn-C1C2" onclick="selectLargeTentPair('C1+C2')">⛺ 配對組合：C1 + C2（共 2 帳）</button>
+              <button type="button" class="pair-select-btn" id="pairBtn-C2C3" onclick="selectLargeTentPair('C2+C3')">⛺ 配對組合：C2 + C3（共 2 帳）</button>
+            </div>
+          </div>
+
+          <div class="map-stage-wrapper" id="mapStageWrapper">
+            <div class="map-toolbar">
+              <span>🗺️ <strong>粗坑露營區營位配置圖</strong>（直接點擊營位圓圈即可選取/取消）</span>
+              <div class="map-status-legend">
+                <span class="status-chip"><span class="legend-dot" style="background:#16a34a;"></span>可訂</span>
+                <span class="status-chip"><span class="legend-dot" style="background:#6b7280;"></span>已客滿</span>
+                <span class="status-chip"><span class="legend-dot" style="background:#ea580c;"></span>已選取</span>
+                <span class="status-chip"><span class="legend-dot" style="background:#7c3aed;"></span>大型帳配對</span>
+              </div>
+            </div>
+            <div class="map-relative-container" id="mapRelativeContainer">
+              <img
+                id="campsiteMapImg"
+                class="campsite-map-img"
+                src="https://drive.google.com/thumbnail?id=1rRgBK8EpQ7SAYEhVnYGyFWyGUQxhsQ8K&sz=w1600"
+                alt="粗坑露營區配置圖 1.jpg"
+                onload="window.handleMapImageLoaded()"
+                onerror="window.handleMapImageError()"
+              >
+              <div id="mapHotspotsLayer"></div>
+            </div>
+          </div>
+
+          <div id="mapFallbackWarning" class="alert-warning alert-box" style="display:none;">
+            ⚠️ <strong>配置圖載入異常，系統已自動啟用「文字營位清單」備援模式：</strong>您可直接透過下方分區營位按鈕完成選位，庫存與計價功能完全正常！
+          </div>
+
+          <div class="fallback-text-list-wrapper">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+              <strong style="color:var(--primary-dark);">📋 分區營位快速選單（與上方配置圖即時同步 / 圖檔備援清單）</strong>
+              <span id="selectedSitesBadgeText" style="font-weight:700; color:var(--accent);">目前未選取營位</span>
+            </div>
+            <div id="textZoneListContainer"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 步驟三：訂位表單與即時試算 -->
+      <section class="section-card" id="step3Section">
+        <div class="section-header">
+          <h2 class="section-title"><span class="step-badge">步驟三</span> 填寫訂位基本資料、人數試算與營區公約確認</h2>
+        </div>
+
+        <form id="guestBookingForm" onsubmit="handleBookingSubmit(event)" novalidate>
+          <div class="booking-form-layout">
+            <div>
+              <h3 style="font-size:1.05rem; color:var(--primary); margin-bottom:12px;">👨‍👩‍👧‍👦 1. 住宿人數與車輛數（依總帳數與住宿晚數動態計算）</h3>
+              <div class="form-grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="selectAdults">成人人數（國中以上）<span class="required-star">*</span></label>
+                  <select class="form-control" id="selectAdults" onchange="triggerQuoteRecalculation()"></select>
+                  <div class="field-hint" id="extraPersonHintText">與國小合計，每帳享 4 人免費額度，超額依過夜晚數計算。</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="selectElementary">國小人數</label>
+                  <select class="form-control" id="selectElementary" onchange="triggerQuoteRecalculation()"></select>
+                  <div class="field-hint">列入每帳 4 人基礎額度計算。</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="selectPreschool">幼兒園以下人數（免費）</label>
+                  <select class="form-control" id="selectPreschool" onchange="triggerQuoteRecalculation()"></select>
+                  <div class="field-hint" id="preschoolLimitHint">不計加人費，防呆上限為每帳最多 4 位幼兒。</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="selectCars">總車輛數<span class="required-star">*</span></label>
+                  <select class="form-control" id="selectCars" onchange="triggerQuoteRecalculation()"></select>
+                  <div class="field-hint" id="extraCarHintText">每帳享 1 車免費額度，超額加車依過夜晚數計算。</div>
+                </div>
+              </div>
+
+              <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
+              <h3 style="font-size:1.05rem; color:var(--primary); margin-bottom:12px;">📝 2. 訂位人聯絡資料</h3>
+              <div class="form-grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="inputCustomerName">訂位人姓名<span class="required-star">*</span></label>
+                  <input type="text" class="form-control" id="inputCustomerName" placeholder="請輸入真實姓名" required>
+                  <div class="field-error-msg" id="errCustomerName">請填寫訂位人姓名（至少 2 個字）。</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="inputCustomerPhone">聯絡電話<span class="required-star">*</span></label>
+                  <input type="tel" class="form-control" id="inputCustomerPhone" placeholder="例如：0912345678" required>
+                  <div class="field-hint">作為後續「匯款回報」與「訂單查詢」的驗證依據。</div>
+                  <div class="field-error-msg" id="errCustomerPhone">請填寫有效的電話號碼（如 09 開頭 10 碼手機）。</div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="inputCustomerEmail">電子信箱 E-mail（選填）</label>
+                <input type="email" class="form-control" id="inputCustomerEmail" placeholder="example@gmail.com" onblur="this.value = this.value.trim(); validateEmailField();">
+                <div class="field-error-msg" id="errCustomerEmail">E-mail 格式不正確，請檢查格式或留空。</div>
+                <div class="email-warning-banner">
+                  ⚠️ <strong>重要提示：</strong>如果不填寫，將無法接收系統自動發送的確認收款信件與訂位明細。
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="inputOrderNotes">訂位備註（選填）</label>
+                <textarea class="form-control" id="inputOrderNotes" rows="2" placeholder="如有特殊需求可在此填寫"></textarea>
+              </div>
+            </div>
+
+            <div>
+              <div class="quote-summary-panel">
+                <div class="quote-title">💰 訂單費用即時試算明細</div>
+                <div class="quote-row"><span>入住 ～ 退營日期：</span><strong id="quoteDateText">尚未選取</strong></div>
+                <div class="quote-row"><span>預訂營位與帳數：</span><strong id="quoteSitesText">尚未選取</strong></div>
+                <div class="quote-row"><span>裝備與配對型態：</span><strong id="quoteTentTypeText">一般帳篷</strong></div>
+                <div class="quote-row"><span>享有基礎額度：</span><strong id="quoteBaseQuotaText" style="color:var(--primary);">請先選擇營位</strong></div>
+                <div class="nightly-detail-list" id="quoteNightlyBreakdown">選取日期與營位後，此處將逐晚列出平假日單價明細。</div>
+                <div class="quote-row"><span>基本營位費總計（逐晚累計）：</span><strong id="quoteBaseFee">$0</strong></div>
+                <div class="quote-row"><span>加人費用（逐晚累計） <small id="quoteExtraPersonFormula"></small>：</span><strong id="quoteExtraPersonFee">$0</strong></div>
+                <div class="quote-row"><span>加車費用（逐晚累計） <small id="quoteExtraCarFormula"></small>：</span><strong id="quoteExtraCarFee">$0</strong></div>
+                <div class="quote-total-row"><span>應付訂單總金額：</span><span id="quoteTotalAmount">$0</span></div>
+              </div>
+
+              <div class="rules-agreement-box">
+                <div style="font-weight:700; color:#92400e; margin-bottom:8px;">📜 營區公約與入退營規範確認書</div>
+                <ul class="rules-list">
+                  <li>正式入營時間 12:00 後、最晚到營 22:00 前，退營時間為隔日 12:00 前。</li>
+                  <li>晚上 10:00 ～ 早上 08:00 為夜間管制時段，請勿大聲喧嘩。</li>
+                  <li>送出後需於 <strong>72 小時內</strong>完成匯款並回報後五碼。</li>
+                </ul>
+                <label class="checkbox-consent-label" for="checkAgreeRules">
+                  <input type="checkbox" id="checkAgreeRules" onchange="document.getElementById('errAgreeRules').classList.remove('visible')">
+                  <span>我已詳閱並同意遵守營區規定（包含入退營時間規範），特別是晚上10:00~早上08:00為管制時段，請勿大聲喧嘩，以免影響其他露友安寧</span>
+                </label>
+                <div class="field-error-msg" id="errAgreeRules" style="margin-top:8px;">⚠️ 您必須勾選同意遵守營區規定才能送出訂單！</div>
+              </div>
+
+              <button type="submit" class="btn-primary-lg" id="submitBookingBtn">✅ 確認送出預約並鎖定營位</button>
+              <div id="bookingSubmitFeedback" style="margin-top:12px;"></div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="section-card" id="bookingSuccessModalCard" style="display:none; border:3px solid var(--green-avail);"></section>
     </div>
 
-    <!-- Android 訪客顯示按鈕（自動呼叫 Chrome） -->
-    <a id="android-open-btn" class="android-btn" href="#">前往預約系統</a>
-  </div>
+    <!-- 視圖 2：填寫匯款回報 -->
+    <div id="view-report" class="view-panel">
+      <section class="section-card">
+        <div class="section-header">
+          <h2 class="section-title">💳 階段二：填寫匯款回報（身分驗證與後五碼提交）</h2>
+        </div>
+        <div class="alert-warning alert-box">
+          ⏰ 請於訂單建立起算 <strong>72 小時內</strong>完成匯款並提交「匯款帳號後五碼」。只要在期限內成功送出回報，系統將保護您的訂單不被逾期排程取消！
+        </div>
+        <form onsubmit="handleVerifyForReport(event)" class="form-grid-2col" style="align-items:end; margin-bottom:20px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="reportVerifyName">預約時填寫之姓名<span class="required-star">*</span></label>
+            <input type="text" class="form-control" id="reportVerifyName" placeholder="請輸入訂位人姓名" required>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="reportVerifyPhone">預約時填寫之電話<span class="required-star">*</span></label>
+            <input type="tel" class="form-control" id="reportVerifyPhone" placeholder="請輸入訂位人電話" required>
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <button type="submit" class="btn-primary-lg" id="btnVerifyReport" style="max-width:340px;">🔐 驗證身分並載入待回報訂單</button>
+          </div>
+        </form>
+        <div id="reportVerifyResultContainer"></div>
+      </section>
+    </div>
+
+    <!-- 視圖 3：訂單狀態查詢 -->
+    <div id="view-query" class="view-panel">
+      <section class="section-card">
+        <div class="section-header">
+          <h2 class="section-title">🔍 階段三：訂單狀態與明細查詢</h2>
+        </div>
+        <div class="alert-info alert-box">
+          💡 只需輸入訂位時填寫的<strong>「姓名」與「電話」</strong>，即可查詢訂單四維狀態與成立時的固定價格快照明細。
+        </div>
+        <form onsubmit="handleQueryOrders(event)" class="form-grid-2col" style="align-items:end; margin-bottom:20px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="queryOrderName">訂位人姓名<span class="required-star">*</span></label>
+            <input type="text" class="form-control" id="queryOrderName" placeholder="請輸入訂位人姓名" required>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="queryOrderPhone">訂位人電話<span class="required-star">*</span></label>
+            <input type="tel" class="form-control" id="queryOrderPhone" placeholder="請輸入訂位人電話" required>
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <button type="submit" class="btn-primary-lg" id="btnQueryOrders" style="max-width:340px;">🔍 立即查詢訂單進度</button>
+          </div>
+        </form>
+        <div id="queryOrderResultContainer"></div>
+      </section>
+    </div>
+
+    <!-- 聯絡資訊與 Google 地圖區塊 -->
+    <section class="section-card" id="contactAndMapSection">
+      <div class="section-header">
+        <h2 class="section-title">📍 聯絡粗坑露營區與交通位置</h2>
+      </div>
+      <div class="contact-cards-grid">
+        <div class="contact-item-card">
+          <div>
+            <div style="font-size:1.1rem; font-weight:700; color:#06c755;">💬 官方 LINE</div>
+            <p style="font-size:0.9rem; color:var(--text-muted); margin-top:6px;">加入官方 LINE 帳號，由專人為您安排，獲取更多優惠。</p>
+          </div>
+          <a href="https://line.me/ti/p/@688fsjst" target="_blank" rel="noopener noreferrer" class="btn-contact-action btn-line">加入官方 LINE</a>
+        </div>
+        <div class="contact-item-card">
+          <div>
+            <div style="font-size:1.1rem; font-weight:700; color:#1877f2;">📘 FB 粉絲專頁</div>
+            <p style="font-size:0.9rem; color:var(--text-muted); margin-top:6px;">按讚追蹤粗坑露營區，了解更多即時活動。</p>
+          </div>
+          <a href="https://www.facebook.com/search/top?q=%E7%B2%97%E5%9D%91%E9%9C%B2%E7%87%9F%E5%8D%80" target="_blank" rel="noopener noreferrer" class="btn-contact-action btn-fb">瞭解更多</a>
+        </div>
+        <div class="contact-item-card">
+          <div>
+            <div style="font-size:1.1rem; font-weight:700; color:var(--primary);">📞 營主電話</div>
+            <p style="font-size:0.9rem; color:var(--text-muted); margin-top:6px;">緊急聯絡、逾期匯款人工查帳或營區路況詢問。</p>
+          </div>
+          <a href="tel:0935708578" class="btn-contact-action btn-phone">📱 撥打營主電話：0935708578</a>
+        </div>
+      </div>
+
+      <div class="map-integration-grid">
+        <div class="map-info-panel">
+          <div style="font-size:1.35rem; font-weight:800; color:var(--primary-dark);">🏕️ 粗坑露營區</div>
+          <div><strong>營區地址：</strong><br>264宜蘭縣員山鄉粗坑路151號</div>
+          <a href="https://www.google.com/maps/search/?api=1&query=264%E5%AE%9C%E8%98%AD%E7%B8%A3%E5%93%A1%E5%B1%B1%E9%84%89%E7%B2%97%E5%9D%91%E8%B7%AF151%E8%99%9F+%E7%B2%97%E5%9D%91%E9%9C%B2%E7%87%9F%E5%8D%80" target="_blank" rel="noopener noreferrer" class="btn-primary-lg" style="text-decoration:none; min-height:46px; font-size:0.98rem;">
+            🗺️ 詳細地圖（開啟 Google 導航）
+          </a>
+        </div>
+        <div class="map-iframe-container">
+          <iframe title="粗坑露營區地圖" loading="lazy" allowfullscreen src="https://maps.google.com/maps?q=264%E5%AE%9C%E8%98%AD%E7%B8%A3%E5%93%A1%E5%B1%B1%E9%84%89%E7%B2%97%E5%9D%91%E8%B7%AF151%E8%99%9F&t=&z=15&ie=UTF8&iwloc=&output=embed"></iframe>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <script>
-    const gasUrl = "https://script.google.com/macros/s/AKfycbxFKXeLKJblEKUl55FvOAU87BHMDviImgrta6LroZs9hnn27mnfZJQkFzsRurAXDYdD/exec";
-    const ua = navigator.userAgent || navigator.vendor || window.opera;
-    const isFB = /FBAN|FBAV/i.test(ua);
-    const isIOS = /iPhone|iPad|iPod/i.test(ua);
-    const isAndroid = /Android/i.test(ua);
+    try {
+      localStorage.removeItem('CUKENG_SITE_COORDS_V1');
+      localStorage.removeItem('CUKENG_LATEST_RATES_V2');
+    } catch (e) {}
 
-    if (isAndroid) {
-      // Android 支援以 Intent 自動喚醒 Chrome
-      const cleanUrl = gasUrl.replace(/^https?:\/\//, '');
-      const chromeIntent = `intent://${cleanUrl}#Intent;scheme=https;package=com.android.chrome;end`;
-      const btn = document.getElementById("android-open-btn");
-      btn.style.display = "block";
-      btn.href = chromeIntent;
-      window.location.href = chromeIntent;
-    } else {
-      // iOS 或其他瀏覽器：強制顯示右上角點「⋯」指引，不提供可能導致全白的站內連結
-      document.getElementById("ios-block").style.display = "block";
-      if (isFB) {
-        document.getElementById("top-hand").style.display = "block";
+    var VERIFIED_PRICE_CACHE_KEY = 'CUKENG_VERIFIED_RATES_V3';
+
+    var ALL_SITES_META = [
+      { id: 'A1', zone: '雨棚 A 區 (4.5×6米)', weekday: 0, holiday: 0, left: 36.4, top: 20.8, sizeClass: 'size-a' },
+      { id: 'A2', zone: '雨棚 A 區 (4.5×6米)', weekday: 0, holiday: 0, left: 42.8, top: 20.8, sizeClass: 'size-a' },
+      { id: 'A3', zone: '雨棚 A 區 (4.5×6米)', weekday: 0, holiday: 0, left: 73.0, top: 20.8, sizeClass: 'size-a' },
+      { id: 'A4', zone: '雨棚 A 區 (4.5×6米)', weekday: 0, holiday: 0, left: 79.5, top: 20.8, sizeClass: 'size-a' },
+
+      { id: 'B1', zone: '雨棚 B 區', weekday: 0, holiday: 0, left: 81.2, top: 29.2, sizeClass: '' },
+      { id: 'B2', zone: '雨棚 B 區', weekday: 0, holiday: 0, left: 81.7, top: 36.8, sizeClass: '' },
+      { id: 'B3', zone: '雨棚 B 區', weekday: 0, holiday: 0, left: 82.5, top: 45.3, sizeClass: '' },
+      { id: 'B4', zone: '雨棚 B 區', weekday: 0, holiday: 0, left: 83.2, top: 53.6, sizeClass: '' },
+      { id: 'B5', zone: '雨棚 B 區', weekday: 0, holiday: 0, left: 84.1, top: 61.8, sizeClass: '' },
+      { id: 'B6', zone: '雨棚 B 區', weekday: 0, holiday: 0, left: 84.9, top: 70.1, sizeClass: '' },
+
+      { id: 'C1', zone: '碎石 C 區 (可大型帳配對)', weekday: 0, holiday: 0, left: 34.1, top: 69.0, sizeClass: 'size-c' },
+      { id: 'C2', zone: '碎石 C 區 (可大型帳配對)', weekday: 0, holiday: 0, left: 44.3, top: 69.0, sizeClass: 'size-c' },
+      { id: 'C3', zone: '碎石 C 區 (可大型帳配對)', weekday: 0, holiday: 0, left: 54.5, top: 69.0, sizeClass: 'size-c' },
+
+      { id: 'D1', zone: '碎石 D 區 (附6×6大雨棚)', weekday: 0, holiday: 0, left: 35.6, top: 27.8, sizeClass: '' },
+      { id: 'D2', zone: '碎石 D 區 (附6×6大雨棚)', weekday: 0, holiday: 0, left: 35.6, top: 35.5, sizeClass: '' },
+      { id: 'D3', zone: '碎石 D 區 (附6×6大雨棚)', weekday: 0, holiday: 0, left: 35.6, top: 43.2, sizeClass: '' }
+    ];
+
+    var APP_STATE = {
+      publicInfo: {
+        checkInTime: '13:00',
+        latestArrivalTime: '20:00',
+        checkOutTime: '11:00',
+        bankName: '彰化銀行 (009) / 指定匯款專戶',
+        accountNumber: '42199501721800',
+        accountName: '薛慧瑜',
+        ownerPhone: '0935708578',
+        extraPersonUnitFee: 0,
+        extraCarUnitFee: 0
+      },
+      calendarMap: {},
+      displayedMonths: [],
+      currentMonthIdx: 0,
+      calendarApiBlocked: false,
+      checkInDate: null,
+      checkOutDate: null,
+      stayNights: [],
+      siteAvailability: {},
+      largeTentPairsAvail: { 'C1+C2': 'AVAILABLE', 'C2+C3': 'AVAILABLE' },
+      tentType: '一般帳篷',
+      largeTentPair: '無',
+      selectedSites: [],
+      currentBookingOpId: '',
+      isSubmittingBooking: false
+    };
+
+    function pickDefined() {
+      for (var i = 0; i < arguments.length; i++) {
+        if (arguments[i] !== undefined && arguments[i] !== null && arguments[i] !== '') return arguments[i];
+      }
+      return null;
+    }
+
+    function pickNumber() {
+      for (var i = 0; i < arguments.length; i++) {
+        var v = arguments[i];
+        if (v !== undefined && v !== null && v !== '') {
+          var cleaned = typeof v === 'string' ? v.replace(/,/g, '').trim() : v;
+          if (cleaned !== '' && !isNaN(Number(cleaned))) return Number(cleaned);
+        }
+      }
+      return 0;
+    }
+
+    function saveVerifiedRatesToCache() {
+      try {
+        var zoneRates = {};
+        for (var i = 0; i < ALL_SITES_META.length; i++) {
+          var s = ALL_SITES_META[i];
+          var z = s.id.charAt(0);
+          if (!zoneRates[z]) zoneRates[z] = { weekday: 0, holiday: 0 };
+          if (s.weekday > 0) zoneRates[z].weekday = s.weekday;
+          if (s.holiday > 0) zoneRates[z].holiday = s.holiday;
+        }
+        localStorage.setItem(VERIFIED_PRICE_CACHE_KEY, JSON.stringify({
+          zones: zoneRates,
+          extraPersonUnitFee: APP_STATE.publicInfo.extraPersonUnitFee,
+          extraCarUnitFee: APP_STATE.publicInfo.extraCarUnitFee,
+          savedAt: Date.now()
+        }));
+      } catch (e) {}
+    }
+
+    function refreshTopZonePriceCardsUI() {
+      var zoneSample = {};
+      for (var i = 0; i < ALL_SITES_META.length; i++) {
+        var s = ALL_SITES_META[i];
+        var z = s.id.charAt(0);
+        if (!zoneSample[z]) {
+          zoneSample[z] = { weekday: s.weekday, holiday: s.holiday };
+        }
+      }
+      var zones = ['A', 'B', 'C', 'D'];
+      for (var k = 0; k < zones.length; k++) {
+        var zLetter = zones[k];
+        var rate = zoneSample[zLetter];
+        if (rate) {
+          var holEl = document.getElementById('zonePrice' + zLetter + '_hol');
+          var wkEl = document.getElementById('zonePrice' + zLetter + '_wk');
+          if (holEl && rate.holiday > 0) holEl.textContent = '假日 $' + Number(rate.holiday).toLocaleString();
+          if (wkEl && rate.weekday > 0) wkEl.textContent = '平日 $' + Number(rate.weekday).toLocaleString();
+        }
       }
     }
-  </script>
 
+    function updateExtraUnitFeeUI(personUnit, carUnit) {
+      if (personUnit !== undefined && personUnit !== null && personUnit !== '' && !isNaN(Number(personUnit)) && Number(personUnit) >= 0) {
+        APP_STATE.publicInfo.extraPersonUnitFee = Number(personUnit);
+      }
+      if (carUnit !== undefined && carUnit !== null && carUnit !== '' && !isNaN(Number(carUnit)) && Number(carUnit) >= 0) {
+        APP_STATE.publicInfo.extraCarUnitFee = Number(carUnit);
+      }
+
+      var pFee = APP_STATE.publicInfo.extraPersonUnitFee;
+      var cFee = APP_STATE.publicInfo.extraCarUnitFee;
+
+      var epHint = document.getElementById('extraPersonHintText');
+      if (epHint && pFee !== null && pFee !== undefined) {
+        epHint.textContent = '與國小合計，每帳享 4 人免費額度，超額 +$' + Number(pFee).toLocaleString() + '/人/晚（依過夜晚數計算）。';
+      }
+      var ecHint = document.getElementById('extraCarHintText');
+      if (ecHint && cFee !== null && cFee !== undefined) {
+        ecHint.textContent = '每帳享 1 車免費額度，超額加車 +$' + Number(cFee).toLocaleString() + '/台/晚（依過夜晚數計算）。';
+      }
+      saveVerifiedRatesToCache();
+    }
+
+    function updateZoneRateAndTopCard(zoneLetter, weekdayPrice, holidayPrice) {
+      var z = String(zoneLetter || '').trim().toUpperCase().charAt(0);
+      if (['A', 'B', 'C', 'D'].indexOf(z) === -1) return;
+
+      for (var i = 0; i < ALL_SITES_META.length; i++) {
+        if (ALL_SITES_META[i].id.charAt(0) === z) {
+          if (weekdayPrice && weekdayPrice > 0) ALL_SITES_META[i].weekday = weekdayPrice;
+          if (holidayPrice && holidayPrice > 0) ALL_SITES_META[i].holiday = holidayPrice;
+        }
+      }
+      refreshTopZonePriceCardsUI();
+      saveVerifiedRatesToCache();
+    }
+
+    function applyCampRulesToUI(rulesObj) {
+      if (!rulesObj || typeof rulesObj !== 'object') return;
+      var checkIn = rulesObj.checkInTime || rulesObj.CHECK_IN_TIME || APP_STATE.publicInfo.checkInTime || '12:00';
+      var latest = rulesObj.latestArrivalTime || rulesObj.LATEST_ARRIVAL_TIME || APP_STATE.publicInfo.latestArrivalTime || '22:00';
+      var checkOut = rulesObj.checkOutTime || rulesObj.CHECK_OUT_TIME || APP_STATE.publicInfo.checkOutTime || '12:00';
+      var deadlineHrs = Number(rulesObj.paymentDeadlineHours || rulesObj.PAYMENT_DEADLINE_HOURS || APP_STATE.publicInfo.paymentDeadlineHours || 72) || 72;
+
+      APP_STATE.publicInfo.checkInTime = checkIn;
+      APP_STATE.publicInfo.latestArrivalTime = latest;
+      APP_STATE.publicInfo.checkOutTime = checkOut;
+      APP_STATE.publicInfo.paymentDeadlineHours = deadlineHrs;
+
+      if (rulesObj.bankName || rulesObj.BANK_NAME) {
+        var bName = String(rulesObj.bankName || rulesObj.BANK_NAME).trim();
+        var bCode = String(rulesObj.bankCode || rulesObj.BANK_CODE || '').trim();
+        APP_STATE.publicInfo.bankName = (bCode && bName.indexOf(bCode) === -1) ? (bName + ' (' + bCode + ')') : bName;
+      }
+      if (rulesObj.bankAccount || rulesObj.BANK_ACCOUNT || rulesObj.accountNumber || rulesObj.account) {
+        APP_STATE.publicInfo.accountNumber = String(rulesObj.bankAccount || rulesObj.BANK_ACCOUNT || rulesObj.accountNumber || rulesObj.account).trim();
+      }
+      if (rulesObj.bankAccountName || rulesObj.BANK_ACCOUNT_NAME || rulesObj.accountName) {
+        APP_STATE.publicInfo.accountName = String(rulesObj.bankAccountName || rulesObj.BANK_ACCOUNT_NAME || rulesObj.accountName).trim();
+      }
+      if (rulesObj.contactPhone || rulesObj.HOST_PHONE) {
+        APP_STATE.publicInfo.ownerPhone = String(rulesObj.contactPhone || rulesObj.HOST_PHONE).trim();
+      }
+
+      var ruleTimeEl = document.getElementById('ruleTimeDisplay');
+      if (ruleTimeEl) {
+        ruleTimeEl.textContent = '正式入營 ' + checkIn + ' 後｜最晚到營 ' + latest + ' 前｜退營時間 ' + checkOut + ' 前';
+      }
+      var rulesListItems = document.querySelectorAll('.rules-list li');
+      if (rulesListItems && rulesListItems.length >= 1) {
+        rulesListItems[0].textContent = '正式入營時間 ' + checkIn + ' 後、最晚到營 ' + latest + ' 前，退營時間為隔日 ' + checkOut + ' 前。';
+      }
+      if (rulesListItems && rulesListItems.length >= 3) {
+        rulesListItems[2].innerHTML = '送出後需於 <strong>' + deadlineHrs + ' 小時內</strong>完成匯款並回報後五碼。';
+      }
+    }
+
+    function applyInjectedRatesPayload(sourceData) {
+      if (!sourceData || typeof sourceData !== 'object') return;
+      for (var i = 0; i < ALL_SITES_META.length; i++) {
+        var s = ALL_SITES_META[i];
+        var z = s.id.charAt(0);
+        if (sourceData.sites && sourceData.sites[s.id]) {
+          if (sourceData.sites[s.id].weekday > 0) s.weekday = sourceData.sites[s.id].weekday;
+          if (sourceData.sites[s.id].holiday > 0) s.holiday = sourceData.sites[s.id].holiday;
+          s.enabled = (sourceData.sites[s.id].enabled !== false);
+          if (s.enabled === false) {
+            APP_STATE.siteAvailability[s.id] = 'OCCUPIED';
+          }
+        } else if (sourceData.zones && sourceData.zones[z]) {
+          if (sourceData.zones[z].weekday > 0) s.weekday = sourceData.zones[z].weekday;
+          if (sourceData.zones[z].holiday > 0) s.holiday = sourceData.zones[z].holiday;
+        }
+      }
+      if (sourceData.extraPersonUnitFee !== undefined || sourceData.extraCarUnitFee !== undefined) {
+        updateExtraUnitFeeUI(sourceData.extraPersonUnitFee, sourceData.extraCarUnitFee);
+      }
+      if (sourceData.rules) {
+        applyCampRulesToUI(sourceData.rules);
+      }
+      refreshTopZonePriceCardsUI();
+      saveVerifiedRatesToCache();
+    }
+
+    (function initZeroDelayRates() {
+      var sourceData = window.__SERVER_INJECTED_RATES;
+      if (!sourceData) {
+        try {
+          var raw = localStorage.getItem(VERIFIED_PRICE_CACHE_KEY);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            if (parsed && parsed.savedAt && (Date.now() - Number(parsed.savedAt) < 30 * 60 * 1000)) {
+              sourceData = parsed;
+            }
+          }
+        } catch (e) {}
+      }
+      if (sourceData) {
+        applyInjectedRatesPayload(sourceData);
+      }
+    })();
+
+    function probeAllZonesLatestPricesOnBoot() {
+      var now = new Date();
+      var weekdayCheckIn = '';
+      var weekdayCheckOut = '';
+      var holidayCheckIn = '';
+      var holidayCheckOut = '';
+
+      for (var offset = 7; offset <= 28; offset++) {
+        var d1 = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+        var d2 = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset + 1);
+        var dow = d1.getDay();
+        if (!weekdayCheckIn && dow === 2) {
+          weekdayCheckIn = formatDateYMD(d1);
+          weekdayCheckOut = formatDateYMD(d2);
+        }
+        if (!holidayCheckIn && dow === 6) {
+          holidayCheckIn = formatDateYMD(d1);
+          holidayCheckOut = formatDateYMD(d2);
+        }
+        if (weekdayCheckIn && holidayCheckIn) break;
+      }
+
+      var sampleSites = ['A1', 'B1', 'C1', 'D1'];
+
+      sampleSites.forEach(function(siteId, idx) {
+        var zLetter = siteId.charAt(0);
+
+        if (weekdayCheckIn) {
+          var isFirst = (idx === 0);
+          callGasApi('apiCalculateGuestQuote', {
+            checkInDate: weekdayCheckIn,
+            checkOutDate: weekdayCheckOut,
+            campsites: [siteId],
+            selectedSites: [siteId],
+            tentType: '一般帳篷',
+            largeTentPair: '無',
+            adults: isFirst ? 5 : 2,
+            elementary: 0,
+            preschool: 0,
+            totalCars: isFirst ? 2 : 1,
+            cars: isFirst ? 2 : 1
+          }).then(function(raw) {
+            var res = unwrapApiData(raw);
+            if (!res.ok) return;
+            var d = res.data || {};
+            var q = d.quote || d.priceSnapshot || d.pricing || d;
+            var snap = d.priceSnapshot || q.priceSnapshot || q.snapshot || {};
+            var tot = q.totals || snap.totals || d.totals || {};
+            var sur = q.surcharges || snap.surcharges || d.surcharges || {};
+
+            var wkPrice = pickNumber(
+              tot.baseCampsiteFeeTotal, tot.baseCampFee,
+              q.baseCampsiteFeeTotal, q.baseCampFee, q.baseFeeTotal,
+              d.baseCampsiteFeeTotal, d.baseCampFee, 0
+            );
+            if (!wkPrice) {
+              var list = extractNightlyListFromQuoteResponse(d);
+              if (list.length > 0) wkPrice = pickNumber(list[0].unitPrice, list[0].price, 0);
+            }
+            if (wkPrice > 0) {
+              updateZoneRateAndTopCard(zLetter, wkPrice, null);
+            }
+
+            if (isFirst) {
+              var pUnit = pickNumber(sur.extraPersonUnitFee, tot.extraPersonFee, sur.extraPersonFee, q.extraPersonFee, 0);
+              var cUnit = pickNumber(sur.extraCarUnitFee, tot.extraCarFee, sur.extraCarFee, q.extraCarFee, 0);
+              if (pUnit > 0 || cUnit > 0) updateExtraUnitFeeUI(pUnit, cUnit);
+            }
+          }).catch(function() {});
+        }
+
+        if (holidayCheckIn) {
+          callGasApi('apiCalculateGuestQuote', {
+            checkInDate: holidayCheckIn,
+            checkOutDate: holidayCheckOut,
+            campsites: [siteId],
+            selectedSites: [siteId],
+            tentType: '一般帳篷',
+            largeTentPair: '無',
+            adults: 2,
+            elementary: 0,
+            preschool: 0,
+            totalCars: 1,
+            cars: 1
+          }).then(function(raw) {
+            var res = unwrapApiData(raw);
+            if (!res.ok) return;
+            var d = res.data || {};
+            var q = d.quote || d.priceSnapshot || d.pricing || d;
+            var snap = d.priceSnapshot || q.priceSnapshot || q.snapshot || {};
+            var tot = q.totals || snap.totals || d.totals || {};
+
+            var holPrice = pickNumber(
+              tot.baseCampsiteFeeTotal, tot.baseCampFee,
+              q.baseCampsiteFeeTotal, q.baseCampFee, q.baseFeeTotal,
+              d.baseCampsiteFeeTotal, d.baseCampFee, 0
+            );
+            if (!holPrice) {
+              var list = extractNightlyListFromQuoteResponse(d);
+              if (list.length > 0) holPrice = pickNumber(list[0].unitPrice, list[0].price, 0);
+            }
+            if (holPrice > 0) {
+              updateZoneRateAndTopCard(zLetter, null, holPrice);
+            }
+          }).catch(function() {});
+        }
+      });
+    }
+
+    function normalizeOrderRecord(ord) {
+      ord = ord || {};
+      var statusObj = ord.fourDimStatus || ord.statuses || ord.status || {};
+      var reportObj = ord.paymentReport || ord.reconciliation || ord.paymentInfo || {};
+
+      var snap = null;
+      var rawSnap = ord.priceSnapshot || ord.pricingSnapshot || ord.snapshot;
+      if (rawSnap) {
+        if (typeof rawSnap === 'string') {
+          try { snap = JSON.parse(rawSnap); } catch (e) { snap = null; }
+        } else if (typeof rawSnap === 'object') {
+          snap = rawSnap;
+        }
+      }
+
+      var stayPeriod = (snap && snap.stayPeriod) || ord.stayPeriod || {};
+      var campSel = (snap && snap.campsiteSelection) || ord.campsiteSelection || {};
+      var counts = (snap && snap.guestAndCarCounts) || ord.guestAndCarCounts || {};
+      var totals = (snap && snap.totals) || ord.totals || {};
+      var surcharges = (snap && snap.surcharges) || ord.surcharges || {};
+      var quotaSummary = (snap && snap.quotaSummary) || ord.quotaSummary || {};
+
+      var orderId = pickDefined(ord.orderId, ord.id, '');
+      var orderStatus = pickDefined(ord.orderStatus, statusObj.orderStatus, statusObj.order, '待付款');
+      var paymentStatus = pickDefined(ord.paymentStatus, statusObj.paymentStatus, statusObj.payment, '未回報');
+      var inventoryStatus = pickDefined(ord.inventoryStatus, statusObj.inventoryStatus, statusObj.inventory, '保留中');
+      var notificationStatus = pickDefined(ord.notificationStatus, statusObj.notificationStatus, statusObj.notification, '待發送');
+
+      var last5 = pickDefined(
+        ord.remittanceLast5,
+        ord.last5Digits,
+        ord.lastFiveDigits,
+        reportObj.remittanceLast5,
+        reportObj.last5Digits,
+        reportObj.lastFiveDigits,
+        ''
+      );
+      var reportedAt = pickDefined(
+        ord.paymentReportedAt,
+        ord.reportedAt,
+        reportObj.paymentReportedAt,
+        reportObj.reportedAt,
+        ''
+      );
+
+      if (last5 && orderStatus === '待付款') orderStatus = '待核帳';
+      if (last5 && paymentStatus === '未回報') paymentStatus = '已回報待核帳';
+
+      var rawCampsites = pickDefined(ord.campsites, campSel.campsites, ord.selectedSites, []);
+      var campsitesStr = Array.isArray(rawCampsites) ? rawCampsites.join('、') : String(rawCampsites || '');
+
+      var baseFee = pickNumber(
+        totals.baseCampsiteFeeTotal,
+        totals.baseCampFee,
+        snap && snap.baseCampFee,
+        ord.baseCampsiteFeeTotal,
+        ord.baseCampFee,
+        0
+      );
+      var extraPersonFee = pickNumber(
+        totals.extraPersonFee,
+        surcharges.extraPersonFee,
+        snap && snap.extraPersonFee,
+        ord.extraPersonFee,
+        0
+      );
+      var extraCarFee = pickNumber(
+        totals.extraCarFee,
+        surcharges.extraCarFee,
+        snap && snap.extraCarFee,
+        ord.extraCarFee,
+        0
+      );
+      var totalAmount = pickNumber(
+        totals.totalAmount,
+        snap && snap.totalAmount,
+        ord.totalAmount,
+        ord.grandTotal,
+        baseFee + extraPersonFee + extraCarFee
+      );
+
+      var nightlyList = (snap && snap.nightlyBreakdown) || ord.nightlyBreakdown || [];
+
+      return {
+        orderId: orderId,
+        orderStatus: orderStatus,
+        paymentStatus: paymentStatus,
+        inventoryStatus: inventoryStatus,
+        notificationStatus: notificationStatus,
+        last5Digits: last5 ? String(last5) : '',
+        paymentReportedAt: reportedAt ? String(reportedAt) : '',
+        paymentDeadline: pickDefined(ord.paymentDeadline, ord.expireTime, ''),
+        checkInDate: pickDefined(ord.checkInDate, stayPeriod.checkInDate, ''),
+        checkOutDate: pickDefined(ord.checkOutDate, stayPeriod.checkOutDate, ''),
+        nightsCount: pickDefined(ord.nightsCount, ord.nights, stayPeriod.nightsCount, ''),
+        campsitesStr: campsitesStr,
+        tentType: pickDefined(ord.tentType, campSel.tentType, '一般帳篷'),
+        largeTentPair: pickDefined(ord.largeTentPair, campSel.largeTentPair, '無'),
+        quotaDesc: pickDefined(ord.quotaDescription, quotaSummary.description, ''),
+        adults: pickDefined(ord.adults, counts.adults, '-'),
+        elementary: pickDefined(ord.elementary, counts.elementary, '-'),
+        preschool: pickDefined(ord.preschool, counts.preschool, '-'),
+        totalCars: pickDefined(ord.totalCars, counts.totalCars, '-'),
+        baseFee: baseFee,
+        extraPersonFee: extraPersonFee,
+        extraCarFee: extraCarFee,
+        totalAmount: totalAmount,
+        pricedAt: pickDefined(snap && snap.pricedAt, snap && snap.calculatedAt, ord.priceCalculatedAt, ''),
+        ruleVersion: pickDefined(snap && snap.pricingRuleVersion, snap && snap.ruleVersion, ord.pricingRuleVersion, 'v1.0.0'),
+        nightlyBreakdown: Array.isArray(nightlyList) ? nightlyList : [],
+        isExpired: Boolean(ord.isExpired || orderStatus === '已取消')
+      };
+    }
+
+    function getStatusBadgeClass(statusStr) {
+      var s = String(statusStr || '');
+      if (s.indexOf('已成立') !== -1 || s.indexOf('已確認') !== -1 || s.indexOf('正式占用') !== -1 || s.indexOf('成功') !== -1 || s.indexOf('完成') !== -1) {
+        return 'badge-green';
+      }
+      if (s.indexOf('待核帳') !== -1 || s.indexOf('已回報') !== -1) {
+        return 'badge-blue';
+      }
+      if (s.indexOf('取消') !== -1 || s.indexOf('異常') !== -1 || s.indexOf('已釋出') !== -1 || s.indexOf('失敗') !== -1) {
+        return 'badge-red';
+      }
+      return 'badge-yellow';
+    }
+
+    function generateOperationId(prefix) {
+      var rand = Math.random().toString(36).substring(2, 10);
+      return prefix + '_' + Date.now() + '_' + rand;
+    }
+
+    function refreshBookingOperationId() {
+      APP_STATE.currentBookingOpId = generateOperationId('BOOK');
+    }
+
+    /**
+     * 核心雙模通訊引擎：
+     * - 在 GAS 內開啟時使用 google.script.run
+     * - 在 GitHub Pages / FB / LINE / Safari / Chrome 開啟時，自動透過 fetch 與 GAS 後端即時雙向同步
+     */
+    function callGasApi(fnName, params) {
+      return new Promise(function(resolve, reject) {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          var runner = google.script.run
+            .withSuccessHandler(function(res) { resolve(res); })
+            .withFailureHandler(function(err) { reject(err); });
+          if (params !== undefined) {
+            runner[fnName](params);
+          } else {
+            runner[fnName]();
+          }
+          return;
+        }
+
+        var apiUrl = window.__GAS_WEB_APP_URL;
+        fetch(apiUrl, {
+          method: 'POST',
+          redirect: 'follow',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({
+            source: 'GAS_FRONTEND_API',
+            action: fnName,
+            fnName: fnName,
+            params: params !== undefined ? params : {}
+          })
+        })
+        .then(function(response) {
+          return response.text();
+        })
+        .then(function(text) {
+          var trimmed = String(text || '').trim();
+          if (trimmed.charAt(0) === '<') {
+            throw new Error('GAS 後端尚未加入 API 轉發程式碼或尚未更新部署版本。');
+          }
+          var json = JSON.parse(trimmed);
+          if (json && json._injectedRates) {
+            applyInjectedRatesPayload(json._injectedRates);
+          }
+          resolve(json);
+        })
+        .catch(function(err) {
+          reject(err);
+        });
+      });
+    }
+
+    function unwrapApiData(res) {
+      if (!res) return { ok: false, message: '伺服器未回傳資料' };
+      if (res.ok === false || res.success === false) {
+        return {
+          ok: false,
+          message: res.message || res.error || '操作失敗',
+          raw: res
+        };
+      }
+      var data = (res.data !== undefined) ? res.data : res;
+      return { ok: true, data: data, raw: res };
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+      refreshBookingOperationId();
+      populatePeopleAndCarSelects(1);
+      renderMapHotspots();
+      renderTextZoneList();
+      loadPublicCampInfo();
+      probeAllZonesLatestPricesOnBoot();
+      loadSixMonthCalendar();
+    });
+
+    function switchMainView(viewName) {
+      var views = ['booking', 'report', 'query'];
+      for (var i = 0; i < views.length; i++) {
+        var v = views[i];
+        var panel = document.getElementById('view-' + v);
+        var btn = document.getElementById('tabBtn-' + v);
+        if (panel) panel.classList.toggle('active', v === viewName);
+        if (btn) btn.classList.toggle('active', v === viewName);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function scrollToContactSection() {
+      var el = document.getElementById('contactAndMapSection');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function loadPublicCampInfo() {
+      callGasApi('apiGetPublicCampInfo').then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok) return;
+        var d = res.data || {};
+        var rules = d.rules || d;
+
+        applyCampRulesToUI(rules);
+        var b = d.bankInfo || d.remittanceInfo;
+        if (b) applyCampRulesToUI(b);
+
+        var pUnit = (rules.extraPersonUnitPrice !== undefined) ? Number(rules.extraPersonUnitPrice) : undefined;
+        var cUnit = (rules.extraCarUnitPrice !== undefined) ? Number(rules.extraCarUnitPrice) : undefined;
+        if (pUnit !== undefined || cUnit !== undefined) {
+          updateExtraUnitFeeUI(pUnit, cUnit);
+        }
+
+        if (Array.isArray(d.campsites) && d.campsites.length > 0) {
+          var siteMap = {};
+          for (var i = 0; i < d.campsites.length; i++) {
+            var cItem = d.campsites[i];
+            var cid = String(cItem.siteId || cItem.campsiteId || cItem.id || '').trim().toUpperCase();
+            if (cid) siteMap[cid] = cItem;
+          }
+          for (var j = 0; j < ALL_SITES_META.length; j++) {
+            var meta = ALL_SITES_META[j];
+            var matched = siteMap[meta.id];
+            if (matched) {
+              var wk = pickNumber(matched.weekdayPrice, matched.weekday, 0);
+              var hol = pickNumber(matched.holidayPrice, matched.holiday, 0);
+              if (wk > 0) meta.weekday = wk;
+              if (hol > 0) meta.holiday = hol;
+              meta.enabled = !(matched.enabled === false || matched.status === '停用' || matched.status === '關閉');
+              if (meta.enabled === false) {
+                APP_STATE.siteAvailability[meta.id] = 'OCCUPIED';
+              }
+            }
+          }
+          refreshTopZonePriceCardsUI();
+          saveVerifiedRatesToCache();
+          renderMapHotspots();
+          renderTextZoneList();
+        }
+      }).catch(function() {});
+    }
+
+    function loadSixMonthCalendar() {
+      var today = formatDateYMD(new Date());
+      callGasApi('apiGetSixMonthCalendarOverview', { startDate: today, days: 185 }).then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok || (res.data && res.data.calendarApiFailed)) {
+          APP_STATE.calendarApiBlocked = true;
+          var banner = document.getElementById('globalSystemBanner');
+          banner.style.display = 'block';
+          banner.className = 'alert-danger alert-box';
+          banner.innerHTML = '🚨 <strong>Google 假日月曆讀取異常阻斷保護：</strong>' + escapeHtml(res.message || '後端尚未完成 Google 日曆授權或快取初始化。') +
+            '<br>👉 <strong>營主修復方式：</strong>請於 GAS 編輯器執行一次 <code>authorizeAndFixGoogleCalendar()</code> 完成日曆授權與快取建立，再重新整理此頁面。';
+          document.getElementById('currentMonthTitle').textContent = '日曆待授權';
+          document.getElementById('submitBookingBtn').disabled = true;
+          return;
+        }
+
+        var d = res.data || {};
+        var list = Array.isArray(d) ? d : (d.days || d.calendar || d.overview || []);
+        APP_STATE.calendarMap = {};
+
+        if (Array.isArray(list)) {
+          for (var i = 0; i < list.length; i++) {
+            var item = list[i];
+            var dt = item.date || item.dateStr;
+            if (dt) APP_STATE.calendarMap[dt] = normalizeCalendarDay(item);
+          }
+        } else if (typeof list === 'object') {
+          var keys = Object.keys(list);
+          for (var k = 0; k < keys.length; k++) {
+            APP_STATE.calendarMap[keys[k]] = normalizeCalendarDay(list[keys[k]]);
+          }
+        }
+
+        buildDisplayedMonths(today, 185);
+        renderCurrentMonthCalendar();
+      }).catch(function(err) {
+        var banner = document.getElementById('globalSystemBanner');
+        banner.style.display = 'block';
+        banner.className = 'alert-danger alert-box';
+        banner.innerHTML = '🚨 <strong>讀取月曆失敗：</strong>' + escapeHtml(err.message || String(err));
+      });
+    }
+
+    function normalizeCalendarDay(item) {
+      var avail = pickNumber(item.availableSitesCount, item.availableCount, 16);
+      var light = item.availabilityLight || item.light || '';
+      if (!light) {
+        if (avail <= 0) light = 'RED';
+        else if (avail <= 5) light = 'YELLOW';
+        else light = 'GREEN';
+      }
+      return {
+        availabilityLight: String(light).toUpperCase(),
+        availableSitesCount: avail,
+        isHoliday: Boolean(item.isHoliday || item.dateType === '假日' || item.dateType === '國定假日' || item.dateType === '特殊假日'),
+        holidayName: item.holidayName || item.eventName || item.specialLabel || (item.dateType === '補班日' ? '補班日' : ''),
+        dateType: item.dateType || (item.isHoliday ? '假日' : '平日')
+      };
+    }
+
+    function buildDisplayedMonths(startDateStr, totalDays) {
+      var start = parseDateYMD(startDateStr);
+      var monthsMap = {};
+      var monthsArr = [];
+      for (var i = 0; i < totalDays; i++) {
+        var d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+        var key = d.getFullYear() + '-' + (d.getMonth() + 1);
+        if (!monthsMap[key]) {
+          monthsMap[key] = true;
+          monthsArr.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+        }
+      }
+      APP_STATE.displayedMonths = monthsArr;
+      APP_STATE.currentMonthIdx = 0;
+    }
+
+    function changeCalendarMonth(delta) {
+      var nextIdx = APP_STATE.currentMonthIdx + delta;
+      if (nextIdx < 0 || nextIdx >= APP_STATE.displayedMonths.length) return;
+      APP_STATE.currentMonthIdx = nextIdx;
+      renderCurrentMonthCalendar();
+    }
+
+    function renderCurrentMonthCalendar() {
+      var container = document.getElementById('calendarGridContainer');
+      var months = APP_STATE.displayedMonths;
+      if (!months.length) return;
+
+      var curObj = months[APP_STATE.currentMonthIdx];
+      var year = curObj.year;
+      var month = curObj.month;
+      document.getElementById('currentMonthTitle').textContent = year + ' 年 ' + month + ' 月';
+      document.getElementById('prevMonthBtn').disabled = (APP_STATE.currentMonthIdx <= 0);
+      document.getElementById('nextMonthBtn').disabled = (APP_STATE.currentMonthIdx >= months.length - 1);
+
+      var firstDayWeek = new Date(year, month - 1, 1).getDay();
+      var daysInMonth = new Date(year, month, 0).getDate();
+      var html = [];
+
+      for (var i = 0; i < firstDayWeek; i++) {
+        html.push('<div class="cal-cell empty"></div>');
+      }
+
+      for (var day = 1; day <= daysInMonth; day++) {
+        var mStr = String(month).length < 2 ? '0' + month : String(month);
+        var dStr = String(day).length < 2 ? '0' + day : String(day);
+        var dateStr = year + '-' + mStr + '-' + dStr;
+        var info = APP_STATE.calendarMap[dateStr];
+
+        if (!info) {
+          html.push('<div class="cal-cell disabled-past"><div class="cal-top-row"><span class="cal-day-num">' + day + '</span></div><span style="font-size:0.7rem;">未開放</span></div>');
+          continue;
+        }
+
+        var isCheckIn = (APP_STATE.checkInDate === dateStr);
+        var isCheckOut = (APP_STATE.checkOutDate === dateStr);
+        var isInStayRange = (APP_STATE.stayNights.indexOf(dateStr) !== -1) && !isCheckIn;
+
+        var cellClass = 'cal-cell';
+        var roleLabel = '';
+        if (isCheckIn) {
+          cellClass += ' selected-checkin';
+          roleLabel = '<div class="cal-role-label">入住(計入)</div>';
+        } else if (isCheckOut) {
+          cellClass += ' selected-checkout';
+          roleLabel = '<div class="cal-role-label">退營(不計)</div>';
+        } else if (isInStayRange) {
+          cellClass += ' in-range';
+          roleLabel = '<div class="cal-role-label">住宿夜</div>';
+        }
+
+        var holidayBadge = '';
+        if (info.holidayName) {
+          var isMakeUp = info.holidayName.indexOf('補班') !== -1;
+          holidayBadge = '<span class="cal-holiday-tag ' + (isMakeUp ? 'make-up' : '') + '">' + escapeHtml(info.holidayName) + '</span>';
+        } else if (info.isHoliday) {
+          holidayBadge = '<span class="cal-holiday-tag">假日</span>';
+        }
+
+        var statusText = '🟢 剩 ' + info.availableSitesCount + ' 帳';
+        if (info.availabilityLight === 'RED') statusText = '🔴 已客滿';
+        else if (info.availabilityLight === 'YELLOW') statusText = '🟡 剩 ' + info.availableSitesCount + ' 帳';
+
+        html.push(
+          '<div class="' + cellClass + '" onclick="handleCalendarDateClick(\'' + dateStr + '\')">' +
+            '<div class="cal-top-row"><span class="cal-day-num">' + day + '</span>' + holidayBadge + '</div>' +
+            '<div><div class="cal-status-pill light-' + info.availabilityLight + '">' + statusText + '</div>' + roleLabel + '</div>' +
+          '</div>'
+        );
+      }
+
+      container.innerHTML = html.join('');
+    }
+
+    function handleCalendarDateClick(dateStr) {
+      if (APP_STATE.calendarApiBlocked) return;
+      var dayInfo = APP_STATE.calendarMap[dateStr];
+      if (!dayInfo) return;
+
+      if (!APP_STATE.checkInDate || (APP_STATE.checkInDate && APP_STATE.checkOutDate) || dateStr <= APP_STATE.checkInDate) {
+        if (dayInfo.availabilityLight === 'RED' || dayInfo.availableSitesCount <= 0) {
+          alert('⚠️ ' + dateStr + ' 當晚所有營位已客滿，無法作為「入住日」！\n（註：客滿日期僅能作為前一日入住之「退營日」）。');
+          return;
+        }
+        APP_STATE.checkInDate = dateStr;
+        APP_STATE.checkOutDate = null;
+        APP_STATE.stayNights = [dateStr];
+        clearSelectedCampsites();
+        updateDateSummaryUI();
+        renderCurrentMonthCalendar();
+        return;
+      }
+
+      var nights = expandStayNights(APP_STATE.checkInDate, dateStr);
+      if (nights.length > 14) {
+        alert('⚠️ 單筆線上預約最多支援連續住宿 14 晚。');
+        return;
+      }
+
+      for (var i = 0; i < nights.length; i++) {
+        var nStr = nights[i];
+        var nInfo = APP_STATE.calendarMap[nStr];
+        if (!nInfo || nInfo.availabilityLight === 'RED' || nInfo.availableSitesCount <= 0) {
+          alert('⚠️ 您選取的住宿區間中，【' + nStr + ' 當晚】已全數客滿，無法連續住宿！請重新選擇日期區間。');
+          return;
+        }
+      }
+
+      APP_STATE.checkOutDate = dateStr;
+      APP_STATE.stayNights = nights;
+      clearSelectedCampsites();
+      updateDateSummaryUI();
+      renderCurrentMonthCalendar();
+      loadRangeCampsiteAvailability(APP_STATE.checkInDate, APP_STATE.checkOutDate);
+    }
+
+    function resetDateSelection() {
+      APP_STATE.checkInDate = null;
+      APP_STATE.checkOutDate = null;
+      APP_STATE.stayNights = [];
+      clearSelectedCampsites();
+      updateDateSummaryUI();
+      renderCurrentMonthCalendar();
+      document.getElementById('step2LockNotice').style.display = 'block';
+      document.getElementById('step2InteractiveContent').style.display = 'none';
+    }
+
+    function expandStayNights(checkInStr, checkOutStr) {
+      var start = parseDateYMD(checkInStr);
+      var end = parseDateYMD(checkOutStr);
+      var nights = [];
+      var cur = new Date(start.getTime());
+      while (cur < end) {
+        nights.push(formatDateYMD(cur));
+        cur.setDate(cur.getDate() + 1);
+      }
+      return nights;
+    }
+
+    function updateDateSummaryUI() {
+      var textEl = document.getElementById('selectedDateRangeText');
+      var badgeEl = document.getElementById('selectedNightsBadge');
+      var quoteDateEl = document.getElementById('quoteDateText');
+
+      if (!APP_STATE.checkInDate) {
+        textEl.textContent = '尚未選取（請點擊上方月曆選擇入住日與退營日）';
+        badgeEl.textContent = '';
+        quoteDateEl.textContent = '尚未選取';
+        return;
+      }
+      if (!APP_STATE.checkOutDate) {
+        textEl.innerHTML = '已選入住日：<strong>' + APP_STATE.checkInDate + '</strong> ➔ 請接著點選月曆上的<strong>「退營日期」</strong>';
+        badgeEl.textContent = '等待選取退營日...';
+        quoteDateEl.textContent = APP_STATE.checkInDate + ' 入住';
+        return;
+      }
+      var n = APP_STATE.stayNights.length;
+      textEl.innerHTML = '入住：<strong>' + APP_STATE.checkInDate + '</strong>（計入） ➔ 退營：<strong>' + APP_STATE.checkOutDate + '</strong>（不計入）';
+      badgeEl.textContent = '共住宿 ' + n + ' 晚（涵蓋夜晚：' + APP_STATE.stayNights.join('、') + '）';
+      quoteDateEl.textContent = APP_STATE.checkInDate + ' ～ ' + APP_STATE.checkOutDate + ' (' + n + '晚)';
+    }
+
+    function loadRangeCampsiteAvailability(checkInDate, checkOutDate) {
+      var lockNotice = document.getElementById('step2LockNotice');
+      var content = document.getElementById('step2InteractiveContent');
+      lockNotice.style.display = 'block';
+      lockNotice.innerHTML = '⏳ 正在逐晚檢查 16 個營位與大型帳篷配對庫存狀態...';
+
+      callGasApi('apiGetRangeCampsiteAvailability', { checkInDate: checkInDate, checkOutDate: checkOutDate }).then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok) {
+          lockNotice.innerHTML = '❌ 無法取得營位庫存狀態：' + escapeHtml(res.message);
+          return;
+        }
+        var d = res.data || {};
+        var map = {};
+        for (var i = 0; i < ALL_SITES_META.length; i++) {
+          map[ALL_SITES_META[i].id] = 'AVAILABLE';
+        }
+
+        var rawSites = d.sites || d.campsites || d.availability || d.siteStatus || d;
+        if (Array.isArray(rawSites)) {
+          for (var j = 0; j < rawSites.length; j++) {
+            var item = rawSites[j];
+            var id = item.siteId || item.id || item.campsite;
+            var st = (item.status === 'OCCUPIED' || item.isAvailable === false || item.available === false) ? 'OCCUPIED' : 'AVAILABLE';
+            if (id) map[id] = st;
+          }
+        } else if (typeof rawSites === 'object') {
+          for (var k = 0; k < ALL_SITES_META.length; k++) {
+            var sid = ALL_SITES_META[k].id;
+            var val = rawSites[sid];
+            if (val !== undefined && val !== null) {
+              if (typeof val === 'string') map[sid] = (val.toUpperCase() === 'AVAILABLE') ? 'AVAILABLE' : 'OCCUPIED';
+              else if (typeof val === 'boolean') map[sid] = val ? 'AVAILABLE' : 'OCCUPIED';
+              else if (typeof val === 'object') map[sid] = (val.status === 'OCCUPIED' || val.available === false || val.isAvailable === false) ? 'OCCUPIED' : 'AVAILABLE';
+            }
+          }
+        }
+        for (var m = 0; m < ALL_SITES_META.length; m++) {
+          if (ALL_SITES_META[m].enabled === false) {
+            map[ALL_SITES_META[m].id] = 'OCCUPIED';
+          }
+        }
+        APP_STATE.siteAvailability = map;
+        APP_STATE.largeTentPairsAvail = {
+          'C1+C2': (map['C1'] === 'AVAILABLE' && map['C2'] === 'AVAILABLE') ? 'AVAILABLE' : 'OCCUPIED',
+          'C2+C3': (map['C2'] === 'AVAILABLE' && map['C3'] === 'AVAILABLE') ? 'AVAILABLE' : 'OCCUPIED'
+        };
+
+        lockNotice.style.display = 'none';
+        content.style.display = 'block';
+        updateLargeTentPairButtonsUI();
+        renderMapHotspots();
+        renderTextZoneList();
+      }).catch(function(err) {
+        lockNotice.innerHTML = '❌ 查詢區間營位失敗：' + escapeHtml(err.message || String(err));
+      });
+    }
+
+    function setTentMode(mode) {
+      APP_STATE.tentType = mode;
+      APP_STATE.largeTentPair = '無';
+      APP_STATE.selectedSites = [];
+      refreshBookingOperationId();
+
+      document.getElementById('radioNormalTent').checked = (mode === '一般帳篷');
+      document.getElementById('radioLargeTent').checked = (mode === '大型帳篷');
+      document.getElementById('modeCard-normal').classList.toggle('active', mode === '一般帳篷');
+      document.getElementById('modeCard-large').classList.toggle('active', mode === '大型帳篷');
+      document.getElementById('largeTentPairBox').classList.toggle('visible', mode === '大型帳篷');
+
+      updateLargeTentPairButtonsUI();
+      renderMapHotspots();
+      renderTextZoneList();
+      updateSelectedSitesSummaryAndQuote();
+    }
+
+    function updateLargeTentPairButtonsUI() {
+      var btn12 = document.getElementById('pairBtn-C1C2');
+      var btn23 = document.getElementById('pairBtn-C2C3');
+      if (!btn12 || !btn23) return;
+
+      var avail12 = (APP_STATE.largeTentPairsAvail['C1+C2'] === 'AVAILABLE');
+      var avail23 = (APP_STATE.largeTentPairsAvail['C2+C3'] === 'AVAILABLE');
+
+      btn12.disabled = !avail12;
+      btn12.classList.toggle('selected', APP_STATE.largeTentPair === 'C1+C2');
+      btn12.textContent = avail12 ? '⛺ 配對組合：C1 + C2（可訂・共 2 帳）' : '🚫 配對組合：C1 + C2（區間內已客滿）';
+
+      btn23.disabled = !avail23;
+      btn23.classList.toggle('selected', APP_STATE.largeTentPair === 'C2+C3');
+      btn23.textContent = avail23 ? '⛺ 配對組合：C2 + C3（可訂・共 2 帳）' : '🚫 配對組合：C2 + C3（區間內已客滿）';
+    }
+
+    function selectLargeTentPair(pairKey) {
+      if (APP_STATE.largeTentPairsAvail[pairKey] !== 'AVAILABLE') {
+        alert('⚠️ 大型帳篷配對 ' + pairKey + ' 在此日期區間內已客滿！');
+        return;
+      }
+      refreshBookingOperationId();
+      if (APP_STATE.largeTentPair === pairKey) {
+        APP_STATE.largeTentPair = '無';
+        APP_STATE.selectedSites = [];
+      } else {
+        APP_STATE.largeTentPair = pairKey;
+        APP_STATE.selectedSites = pairKey.split('+');
+      }
+      updateLargeTentPairButtonsUI();
+      renderMapHotspots();
+      renderTextZoneList();
+      updateSelectedSitesSummaryAndQuote();
+    }
+
+    function toggleCampsiteSelection(siteId) {
+      if (!APP_STATE.checkInDate || !APP_STATE.checkOutDate) {
+        alert('請先於「步驟一」選取入住日期與退營日期！');
+        return;
+      }
+      var status = APP_STATE.siteAvailability[siteId] || 'AVAILABLE';
+      if (status !== 'AVAILABLE') return;
+
+      refreshBookingOperationId();
+
+      if (APP_STATE.tentType === '大型帳篷') {
+        if (['C1', 'C2', 'C3'].indexOf(siteId) === -1) {
+          alert('⚠️ 大型帳篷僅限用於「碎石 C 區」，且須配對選擇 C1+C2 或 C2+C3！');
+          return;
+        }
+        if (siteId === 'C1') selectLargeTentPair('C1+C2');
+        else if (siteId === 'C3') selectLargeTentPair('C2+C3');
+        else if (APP_STATE.largeTentPairsAvail['C1+C2'] === 'AVAILABLE') selectLargeTentPair('C1+C2');
+        else if (APP_STATE.largeTentPairsAvail['C2+C3'] === 'AVAILABLE') selectLargeTentPair('C2+C3');
+        return;
+      }
+
+      var idx = APP_STATE.selectedSites.indexOf(siteId);
+      if (idx >= 0) {
+        APP_STATE.selectedSites.splice(idx, 1);
+      } else {
+        APP_STATE.selectedSites.push(siteId);
+        APP_STATE.selectedSites.sort();
+      }
+      renderMapHotspots();
+      renderTextZoneList();
+      updateSelectedSitesSummaryAndQuote();
+    }
+
+    function clearSelectedCampsites() {
+      APP_STATE.selectedSites = [];
+      APP_STATE.largeTentPair = '無';
+      refreshBookingOperationId();
+      updateLargeTentPairButtonsUI();
+      renderMapHotspots();
+      renderTextZoneList();
+      updateSelectedSitesSummaryAndQuote();
+    }
+
+    function renderMapHotspots() {
+      var layer = document.getElementById('mapHotspotsLayer');
+      if (!layer) return;
+      var html = [];
+
+      for (var i = 0; i < ALL_SITES_META.length; i++) {
+        var site = ALL_SITES_META[i];
+        var isOccupied = (APP_STATE.siteAvailability[site.id] === 'OCCUPIED');
+        var isSelected = (APP_STATE.selectedSites.indexOf(site.id) !== -1);
+        var isPaired = (APP_STATE.tentType === '大型帳篷' && isSelected);
+
+        var stateClass = 'state-available';
+        var subText = '可訂';
+        if (isOccupied) { stateClass = 'state-occupied'; subText = '已滿'; }
+        else if (isPaired) { stateClass = 'state-paired'; subText = '⛺配對'; }
+        else if (isSelected) { stateClass = 'state-selected'; subText = '✓已選'; }
+
+        var sizeCls = site.sizeClass ? (' ' + site.sizeClass) : '';
+        var disabledAttr = isOccupied ? 'disabled' : '';
+
+        html.push(
+          '<button type="button" class="site-hotspot ' + stateClass + sizeCls + '" ' +
+          'style="left:' + site.left + '%; top:' + site.top + '%;" ' +
+          'onclick="toggleCampsiteSelection(\'' + site.id + '\')" ' + disabledAttr + '>' +
+          '<span>' + site.id + '</span><span class="site-sub-label">' + subText + '</span></button>'
+        );
+      }
+      layer.innerHTML = html.join('');
+    }
+
+    function renderTextZoneList() {
+      var container = document.getElementById('textZoneListContainer');
+      if (!container) return;
+      var zones = {};
+      for (var i = 0; i < ALL_SITES_META.length; i++) {
+        var s = ALL_SITES_META[i];
+        if (!zones[s.zone]) zones[s.zone] = [];
+        zones[s.zone].push(s);
+      }
+
+      var html = [];
+      var zoneNames = Object.keys(zones);
+      for (var z = 0; z < zoneNames.length; z++) {
+        var zTitle = zoneNames[z];
+        html.push('<div class="zone-group-row"><div class="zone-group-title">' + escapeHtml(zTitle) + '</div><div class="site-pill-list">');
+        var list = zones[zTitle];
+        for (var j = 0; j < list.length; j++) {
+          var site = list[j];
+          var isOccupied = (APP_STATE.siteAvailability[site.id] === 'OCCUPIED');
+          var isSelected = (APP_STATE.selectedSites.indexOf(site.id) !== -1);
+          var isPaired = (APP_STATE.tentType === '大型帳篷' && isSelected);
+
+          var stateClass = 'state-available';
+          var statusLabel = '可訂';
+          if (isOccupied) { stateClass = 'state-occupied'; statusLabel = '已客滿'; }
+          else if (isPaired) { stateClass = 'state-paired'; statusLabel = '⛺配對'; }
+          else if (isSelected) { stateClass = 'state-selected'; statusLabel = '✓已選取'; }
+
+          html.push(
+            '<button type="button" class="site-pill-btn ' + stateClass + '" onclick="toggleCampsiteSelection(\'' + site.id + '\')" ' + (isOccupied ? 'disabled' : '') + '>' +
+            '<span>' + site.id + '</span><span style="font-size:0.78rem;">(' + statusLabel + ')</span></button>'
+          );
+        }
+        html.push('</div></div>');
+      }
+      container.innerHTML = html.join('');
+    }
+
+function populatePeopleAndCarSelects(totalTents) {
+      var tents = Math.max(1, Number(totalTents) || 1);
+      var adultSel = document.getElementById('selectAdults');
+      var elemSel = document.getElementById('selectElementary');
+      var preSel = document.getElementById('selectPreschool');
+      var carSel = document.getElementById('selectCars');
+
+      var prevAdults = Number(adultSel.value) || Math.min(tents * 2, 4);
+      var prevElem = Number(elemSel.value) || 0;
+      var prevPre = Number(preSel.value) || 0;
+      var prevCars = Number(carSel.value) || tents;
+
+      var adultHtml = [];
+      for (var i = 1; i <= 32; i++) {
+        adultHtml.push('<option value="' + i + '" ' + (i === prevAdults ? 'selected' : '') + '>' + i + ' 位成人</option>');
+      }
+      adultSel.innerHTML = adultHtml.join('');
+
+      var elemHtml = [];
+      for (var j = 0; j <= 24; j++) {
+        elemHtml.push('<option value="' + j + '" ' + (j === prevElem ? 'selected' : '') + '>' + j + ' 位國小</option>');
+      }
+      elemSel.innerHTML = elemHtml.join('');
+
+      var maxPreschool = tents * 4;
+      var safePre = Math.min(prevPre, maxPreschool);
+      var preHtml = [];
+      for (var k = 0; k <= maxPreschool; k++) {
+        preHtml.push('<option value="' + k + '" ' + (k === safePre ? 'selected' : '') + '>' + k + ' 位幼兒（上限 ' + maxPreschool + ' 位）</option>');
+      }
+      preSel.innerHTML = preHtml.join('');
+      document.getElementById('preschoolLimitHint').textContent = '不計加人費，依目前 ' + tents + ' 帳計算，上限為 ' + maxPreschool + ' 位幼兒。';
+
+      var carHtml = [];
+      for (var c = 0; c <= 20; c++) {
+        carHtml.push('<option value="' + c + '" ' + (c === prevCars ? 'selected' : '') + '>' + c + ' 台車</option>');
+      }
+      carSel.innerHTML = carHtml.join('');
+    }
+
+    function updateSelectedSitesSummaryAndQuote() {
+      var count = APP_STATE.selectedSites.length;
+      var badge = document.getElementById('selectedSitesBadgeText');
+      if (count === 0) {
+        badge.textContent = '目前未選取營位';
+        document.getElementById('quoteSitesText').textContent = '尚未選取';
+        document.getElementById('quoteTentTypeText').textContent = APP_STATE.tentType;
+        document.getElementById('quoteBaseQuotaText').textContent = '請先選擇營位';
+        document.getElementById('quoteNightlyBreakdown').textContent = '選取日期與營位後，此處將逐晚列出平假日單價明細。';
+        document.getElementById('quoteBaseFee').textContent = '$0';
+        document.getElementById('quoteExtraPersonFormula').textContent = '';
+        document.getElementById('quoteExtraPersonFee').textContent = '$0';
+        document.getElementById('quoteExtraCarFormula').textContent = '';
+        document.getElementById('quoteExtraCarFee').textContent = '$0';
+        document.getElementById('quoteTotalAmount').textContent = '$0';
+        return;
+      }
+      badge.textContent = '已選取 ' + count + ' 帳：' + APP_STATE.selectedSites.join('、');
+      populatePeopleAndCarSelects(count);
+      document.getElementById('selectCars').value = String(count);
+      triggerQuoteRecalculation();
+    }
+
+    function renderNightlyBreakdownList(breakdownList, isFromBackend) {
+      var container = document.getElementById('quoteNightlyBreakdown');
+      if (!container || !Array.isArray(breakdownList) || breakdownList.length === 0) return;
+
+      var bHtml = [];
+      for (var i = 0; i < breakdownList.length; i++) {
+        var item = breakdownList[i] || {};
+        var dt = pickDefined(item.stayDate, item.date, item.nightDate, item.night, '');
+        var sid = String(pickDefined(item.campsiteId, item.siteId, item.campsite, item.site, '')).trim().toUpperCase();
+        var dType = String(pickDefined(item.dateType, ''));
+        var evName = String(pickDefined(item.eventName, item.holidayName, ''));
+        var src = String(pickDefined(item.priceSourceSheetEnum, item.priceSource, item.source, ''));
+        var uPrice = pickNumber(item.unitPrice, item.price, item.nightlyPrice, item.fee, item.amount, 0);
+
+        var typeTag = dType || evName || '平假日';
+        if (dType && evName && evName !== dType && evName.indexOf('常態') === -1) {
+          typeTag = dType + '・' + evName;
+        }
+        if (src && typeTag.indexOf(src) === -1) {
+          typeTag += '/' + src;
+        }
+
+        if (isFromBackend && sid && uPrice > 0 && src.indexOf('手動覆蓋') === -1) {
+          var zChar = sid.charAt(0);
+          var combinedType = dType + ' ' + evName + ' ' + src;
+          if (combinedType.indexOf('平') !== -1 || combinedType.indexOf('補班') !== -1) {
+            updateZoneRateAndTopCard(zChar, uPrice, null);
+          } else if (combinedType.indexOf('假') !== -1 || combinedType.indexOf('週五') !== -1 || combinedType.indexOf('週六') !== -1) {
+            updateZoneRateAndTopCard(zChar, null, uPrice);
+          }
+        }
+
+        bHtml.push(
+          '<div style="display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px dotted #e5e7eb;">' +
+          '<span>' + escapeHtml(dt) + '｜營位 <strong>' + escapeHtml(sid) + '</strong> (' + escapeHtml(typeTag) + ')</span>' +
+          '<strong>' + (uPrice > 0 ? ('$' + uPrice.toLocaleString()) : '計算中...') + '</strong></div>'
+        );
+      }
+      container.innerHTML = bHtml.join('');
+    }
+
+    function extractNightlyListFromQuoteResponse(resData) {
+      if (!resData || typeof resData !== 'object') return [];
+      var q = resData.quote || resData.priceSnapshot || resData.pricing || resData;
+      var snap = resData.priceSnapshot || q.priceSnapshot || q.snapshot || {};
+
+      var directArr = q.nightlyBreakdown || snap.nightlyBreakdown || resData.nightlyBreakdown ||
+                      q.details || snap.details || resData.details ||
+                      q.nightlyDetails || q.items || [];
+      if (Array.isArray(directArr) && directArr.length > 0) {
+        return directArr;
+      }
+
+      var byDate = q.nightlySummaryByDate || snap.nightlySummaryByDate || resData.nightlySummaryByDate;
+      if (byDate && typeof byDate === 'object') {
+        var expanded = [];
+        var dates = Object.keys(byDate).sort();
+        for (var dIdx = 0; dIdx < dates.length; dIdx++) {
+          var dtKey = dates[dIdx];
+          var dObj = byDate[dtKey] || {};
+          var cPrices = dObj.campsitePrices || {};
+          var sKeys = Object.keys(cPrices);
+          for (var sIdx = 0; sIdx < sKeys.length; sIdx++) {
+            var sid = sKeys[sIdx];
+            expanded.push({
+              stayDate: dtKey,
+              campsiteId: sid,
+              dateType: dObj.dateType || '',
+              eventName: dObj.eventName || '',
+              priceSourceSheetEnum: dObj.priceSourceSheetEnum || dObj.priceSource || '',
+              unitPrice: pickNumber(cPrices[sid], 0)
+            });
+          }
+        }
+        if (expanded.length > 0) return expanded;
+      }
+
+      return [];
+    }
+
+    var __quoteReqSeq = 0;
+    function triggerQuoteRecalculation() {
+      refreshBookingOperationId();
+      if (!APP_STATE.checkInDate || !APP_STATE.checkOutDate || APP_STATE.selectedSites.length === 0) return;
+
+      var currentReqId = ++__quoteReqSeq;
+      var adults = Number(document.getElementById('selectAdults').value) || 1;
+      var elementary = Number(document.getElementById('selectElementary').value) || 0;
+      var preschool = Number(document.getElementById('selectPreschool').value) || 0;
+      var totalCars = Number(document.getElementById('selectCars').value) || 0;
+      var totalTents = APP_STATE.selectedSites.length;
+      var nightsCount = Math.max(1, APP_STATE.stayNights.length);
+
+      document.getElementById('quoteSitesText').textContent = APP_STATE.selectedSites.join('、') + '（共 ' + totalTents + ' 帳）';
+      document.getElementById('quoteTentTypeText').textContent =
+        APP_STATE.tentType === '大型帳篷' ? '大型帳篷（配對 ' + APP_STATE.largeTentPair + '）' : '一般帳篷';
+      document.getElementById('quoteBaseQuotaText').textContent =
+        (totalTents * 4) + ' 人 / ' + totalTents + ' 車 / ' + totalTents + ' 帳篷 / ' + totalTents + ' 炊事帳';
+
+      var localBaseFee = 0;
+      var allSitesHaveVerifiedRate = true;
+      var localBreakdownList = [];
+
+      for (var nIdx = 0; nIdx < APP_STATE.stayNights.length; nIdx++) {
+        var nStr = APP_STATE.stayNights[nIdx];
+        var calDay = APP_STATE.calendarMap[nStr];
+        var dow = parseDateYMD(nStr).getDay();
+        var isHol = calDay ? Boolean(calDay.isHoliday) : (dow === 5 || dow === 6);
+        var dtypeLabel = (calDay && calDay.holidayName) ? calDay.holidayName : (isHol ? '假日' : '平日');
+
+        for (var sIdx = 0; sIdx < APP_STATE.selectedSites.length; sIdx++) {
+          var sid = APP_STATE.selectedSites[sIdx];
+          var meta = { weekday: 0, holiday: 0 };
+          for (var m = 0; m < ALL_SITES_META.length; m++) {
+            if (ALL_SITES_META[m].id === sid) { meta = ALL_SITES_META[m]; break; }
+          }
+          var uPrice = isHol ? meta.holiday : meta.weekday;
+          if (!uPrice || uPrice <= 0) allSitesHaveVerifiedRate = false;
+          localBaseFee += uPrice;
+          localBreakdownList.push({
+            stayDate: nStr,
+            campsiteId: sid,
+            dateType: dtypeLabel,
+            priceSourceSheetEnum: '',
+            unitPrice: uPrice
+          });
+        }
+      }
+
+      var pUnit = Number(APP_STATE.publicInfo.extraPersonUnitFee) || 0;
+      var cUnit = Number(APP_STATE.publicInfo.extraCarUnitFee) || 0;
+      var extraPeopleCount = Math.max(0, adults + elementary - totalTents * 4);
+      var extraCarCount = Math.max(0, totalCars - totalTents);
+      var localExtraPersonFee = extraPeopleCount * pUnit * nightsCount;
+      var localExtraCarFee = extraCarCount * cUnit * nightsCount;
+      var localTotal = localBaseFee + localExtraPersonFee + localExtraCarFee;
+
+      if (allSitesHaveVerifiedRate && localBaseFee > 0) {
+        document.getElementById('quoteBaseFee').textContent = '$' + localBaseFee.toLocaleString();
+        document.getElementById('quoteTotalAmount').textContent = 'NT$ ' + localTotal.toLocaleString();
+      } else {
+        document.getElementById('quoteBaseFee').textContent = '計算中...';
+        document.getElementById('quoteTotalAmount').textContent = '計算中...';
+      }
+      if (pUnit > 0) {
+        document.getElementById('quoteExtraPersonFormula').textContent = '(超額 ' + extraPeopleCount + ' 人 × $' + pUnit.toLocaleString() + ' × ' + nightsCount + ' 晚)';
+        document.getElementById('quoteExtraPersonFee').textContent = '$' + localExtraPersonFee.toLocaleString();
+      }
+      if (cUnit > 0) {
+        document.getElementById('quoteExtraCarFormula').textContent = '(超額 ' + extraCarCount + ' 車 × $' + cUnit.toLocaleString() + ' × ' + nightsCount + ' 晚)';
+        document.getElementById('quoteExtraCarFee').textContent = '$' + localExtraCarFee.toLocaleString();
+      }
+      renderNightlyBreakdownList(localBreakdownList, false);
+
+      var params = {
+        checkInDate: APP_STATE.checkInDate,
+        checkOutDate: APP_STATE.checkOutDate,
+        campsites: APP_STATE.selectedSites,
+        selectedSites: APP_STATE.selectedSites,
+        tentType: APP_STATE.tentType,
+        largeTentPair: APP_STATE.tentType === '大型帳篷' ? APP_STATE.largeTentPair : '無',
+        adults: adults,
+        elementary: elementary,
+        preschool: preschool,
+        totalCars: totalCars,
+        cars: totalCars
+      };
+
+      callGasApi('apiCalculateGuestQuote', params).then(function(raw) {
+        if (currentReqId !== __quoteReqSeq) return;
+        var res = unwrapApiData(raw);
+        var submitBtn = document.getElementById('submitBookingBtn');
+        if (!res.ok) {
+          document.getElementById('quoteNightlyBreakdown').innerHTML =
+            '<div style="color:var(--red-full);font-weight:700;">⚠️ 計價未通過：' + escapeHtml(res.message || '請確認日期與人數設定') + '</div>';
+          document.getElementById('quoteTotalAmount').textContent = '無法計價';
+          if (submitBtn && !APP_STATE.isSubmittingBooking) submitBtn.disabled = true;
+          return;
+        }
+        if (submitBtn && !APP_STATE.isSubmittingBooking && !APP_STATE.calendarApiBlocked) {
+          submitBtn.disabled = false;
+        }
+
+        var d = res.data || {};
+        var q = d.quote || d.priceSnapshot || d.pricing || d;
+        var snap = d.priceSnapshot || q.priceSnapshot || q.snapshot || {};
+        var qTotals = q.totals || snap.totals || d.totals || {};
+        var qSurcharges = q.surcharges || snap.surcharges || d.surcharges || {};
+
+        var backendBreakdown = extractNightlyListFromQuoteResponse(d);
+        var breakdownSum = 0;
+        if (backendBreakdown.length > 0) {
+          for (var b = 0; b < backendBreakdown.length; b++) {
+            breakdownSum += pickNumber(backendBreakdown[b].unitPrice, backendBreakdown[b].price, backendBreakdown[b].fee, 0);
+          }
+          renderNightlyBreakdownList(backendBreakdown, true);
+        }
+
+        var backendPersonUnit = (qSurcharges.extraPersonUnitFee !== undefined) ? Number(qSurcharges.extraPersonUnitFee) :
+                                (q.extraPersonUnitFee !== undefined) ? Number(q.extraPersonUnitFee) :
+                                (d.extraPersonUnitFee !== undefined) ? Number(d.extraPersonUnitFee) : undefined;
+        var backendCarUnit = (qSurcharges.extraCarUnitFee !== undefined) ? Number(qSurcharges.extraCarUnitFee) :
+                             (q.extraCarUnitFee !== undefined) ? Number(q.extraCarUnitFee) :
+                             (d.extraCarUnitFee !== undefined) ? Number(d.extraCarUnitFee) : undefined;
+
+        if (backendPersonUnit !== undefined || backendCarUnit !== undefined) {
+          updateExtraUnitFeeUI(backendPersonUnit, backendCarUnit);
+        }
+
+        var finalPUnit = (APP_STATE.publicInfo.extraPersonUnitFee !== undefined && APP_STATE.publicInfo.extraPersonUnitFee !== null)
+          ? Number(APP_STATE.publicInfo.extraPersonUnitFee) : 200;
+        var finalCUnit = (APP_STATE.publicInfo.extraCarUnitFee !== undefined && APP_STATE.publicInfo.extraCarUnitFee !== null)
+          ? Number(APP_STATE.publicInfo.extraCarUnitFee) : 200;
+
+        var baseFee = pickNumber(
+          d.baseCampFee, d.baseCampsiteFeeTotal,
+          qTotals.baseCampsiteFeeTotal, qTotals.baseCampFee,
+          q.baseCampsiteFeeTotal, q.baseCampFee, q.baseFeeTotal,
+          breakdownSum > 0 ? breakdownSum : localBaseFee
+        );
+        var extraPersonFee = pickNumber(
+          d.extraPersonFee, qTotals.extraPersonFee, qSurcharges.extraPersonFee, q.extraPersonFee,
+          extraPeopleCount * finalPUnit * nightsCount
+        );
+        var extraCarFee = pickNumber(
+          d.extraCarFee, d.extraVehicleFee, qTotals.extraCarFee, qTotals.extraVehicleFee, qSurcharges.extraCarFee, q.extraCarFee,
+          extraCarCount * finalCUnit * nightsCount
+        );
+        var otherFee = pickNumber(
+          d.otherFee, d.otherExtraFee, qTotals.otherExtraFee, qTotals.otherFees, q.otherExtraFee, 0
+        );
+        var totalAmount = pickNumber(
+          d.totalAmount, qTotals.totalAmount, q.totalAmount,
+          baseFee + extraPersonFee + extraCarFee + otherFee
+        );
+
+        document.getElementById('quoteBaseFee').textContent = '$' + baseFee.toLocaleString();
+        document.getElementById('quoteExtraPersonFormula').textContent = '(超額 ' + extraPeopleCount + ' 人 × $' + finalPUnit.toLocaleString() + ' × ' + nightsCount + ' 晚)';
+        document.getElementById('quoteExtraPersonFee').textContent = '$' + extraPersonFee.toLocaleString();
+        document.getElementById('quoteExtraCarFormula').textContent = '(超額 ' + extraCarCount + ' 車 × $' + finalCUnit.toLocaleString() + ' × ' + nightsCount + ' 晚)';
+        document.getElementById('quoteExtraCarFee').textContent = '$' + extraCarFee.toLocaleString();
+        document.getElementById('quoteTotalAmount').textContent = 'NT$ ' + totalAmount.toLocaleString();
+      }).catch(function() {});
+    }
+
+    function validateEmailField() {
+      var emailInput = document.getElementById('inputCustomerEmail');
+      var errEl = document.getElementById('errCustomerEmail');
+      var trimmed = emailInput.value.trim();
+      emailInput.value = trimmed;
+      if (!trimmed) {
+        emailInput.classList.remove('input-error');
+        errEl.classList.remove('visible');
+        return true;
+      }
+      var emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      var valid = emailRegex.test(trimmed);
+      emailInput.classList.toggle('input-error', !valid);
+      errEl.classList.toggle('visible', !valid);
+      return valid;
+    }
+
+    function handleBookingSubmit(event) {
+      event.preventDefault();
+      if (APP_STATE.isSubmittingBooking || APP_STATE.calendarApiBlocked) return;
+
+      if (!APP_STATE.checkInDate || !APP_STATE.checkOutDate) {
+        alert('請先於「步驟一」選擇入住日期與退營日期！');
+        return;
+      }
+      if (APP_STATE.selectedSites.length === 0) {
+        alert('請於「步驟二」點選要預訂的營位！');
+        return;
+      }
+      if (APP_STATE.tentType === '大型帳篷' && ['C1+C2', 'C2+C3'].indexOf(APP_STATE.largeTentPair) === -1) {
+        alert('選擇「特殊大型帳篷」時，必須於 C 區選取 C1+C2 或 C2+C3 配對組合！');
+        return;
+      }
+
+      var nameInput = document.getElementById('inputCustomerName');
+      var phoneInput = document.getElementById('inputCustomerPhone');
+      var emailInput = document.getElementById('inputCustomerEmail');
+      var agreeCheck = document.getElementById('checkAgreeRules');
+
+      var customerName = nameInput.value.trim();
+      var customerPhone = phoneInput.value.replace(/[\s-]/g, '').trim();
+      var customerEmail = emailInput.value.trim();
+      emailInput.value = customerEmail;
+
+      var nameValid = customerName.length >= 2;
+      document.getElementById('errCustomerName').classList.toggle('visible', !nameValid);
+      nameInput.classList.toggle('input-error', !nameValid);
+
+      var phoneValid = /^0\d{8,9}$/.test(customerPhone);
+      document.getElementById('errCustomerPhone').classList.toggle('visible', !phoneValid);
+      phoneInput.classList.toggle('input-error', !phoneValid);
+
+      var emailValid = validateEmailField();
+      var rulesAgreed = agreeCheck.checked;
+      document.getElementById('errAgreeRules').classList.toggle('visible', !rulesAgreed);
+
+      if (!nameValid || !phoneValid || !emailValid || !rulesAgreed) return;
+
+      var submitBtn = document.getElementById('submitBookingBtn');
+      var feedbackEl = document.getElementById('bookingSubmitFeedback');
+      APP_STATE.isSubmittingBooking = true;
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ 庫存驗證與鎖位處理中，請勿重複點擊...';
+      feedbackEl.innerHTML = '<div class="alert-info alert-box">🔒 正在驗證逐晚庫存並寫入價格快照...</div>';
+
+      var payload = {
+        operationId: APP_STATE.currentBookingOpId,
+        customerName: customerName,
+        name: customerName,
+        customerPhone: customerPhone,
+        phone: customerPhone,
+        customerEmail: customerEmail,
+        email: customerEmail,
+        checkInDate: APP_STATE.checkInDate,
+        checkOutDate: APP_STATE.checkOutDate,
+        campsites: APP_STATE.selectedSites,
+        selectedSites: APP_STATE.selectedSites,
+        tentType: APP_STATE.tentType,
+        largeTentPair: APP_STATE.largeTentPair,
+        adults: Number(document.getElementById('selectAdults').value) || 1,
+        elementary: Number(document.getElementById('selectElementary').value) || 0,
+        preschool: Number(document.getElementById('selectPreschool').value) || 0,
+        totalCars: Number(document.getElementById('selectCars').value) || 0,
+        cars: Number(document.getElementById('selectCars').value) || 0,
+        agreedRules: true,
+        note: document.getElementById('inputOrderNotes').value.trim(),
+        notes: document.getElementById('inputOrderNotes').value.trim()
+      };
+
+      callGasApi('apiSubmitGuestBooking', payload).then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok) {
+          feedbackEl.innerHTML = '<div class="alert-danger alert-box">❌ <strong>預約送出失敗：</strong>' + escapeHtml(res.message) + '</div>';
+          refreshBookingOperationId();
+          loadRangeCampsiteAvailability(APP_STATE.checkInDate, APP_STATE.checkOutDate);
+          return;
+        }
+        var rawOrd = res.data.order || res.data || {};
+        var norm = normalizeOrderRecord(rawOrd);
+        var orderId = pickDefined(norm.orderId, res.raw.orderId, '已建立');
+        var remitInfo = res.data.remittanceInfo || (res.raw && res.raw.remittanceInfo) || null;
+        if (remitInfo) {
+          applyCampRulesToUI(remitInfo);
+        }
+
+        feedbackEl.innerHTML = '<div class="alert-success alert-box">🎉 <strong>預約成功（待付款 / 保留中）！</strong>請查看下方匯款資訊並於期限內回報後五碼。</div>';
+        renderBookingSuccessCard({
+          orderId: orderId,
+          customerName: customerName,
+          customerPhone: customerPhone,
+          customerEmail: customerEmail,
+          checkInDate: APP_STATE.checkInDate,
+          checkOutDate: APP_STATE.checkOutDate,
+          campsites: APP_STATE.selectedSites.slice(),
+          totalAmount: norm.totalAmount,
+          paymentDeadline: pickDefined(norm.paymentDeadline, '訂單建立起 ' + (APP_STATE.publicInfo.paymentDeadlineHours || 72) + ' 小時內'),
+          remittanceInfo: remitInfo
+        });
+        refreshBookingOperationId();
+        loadSixMonthCalendar();
+        loadRangeCampsiteAvailability(APP_STATE.checkInDate, APP_STATE.checkOutDate);
+      }).catch(function(err) {
+        feedbackEl.innerHTML = '<div class="alert-danger alert-box">❌ <strong>系統執行異常：</strong>' + escapeHtml(err.message || String(err)) + '</div>';
+      }).finally(function() {
+        APP_STATE.isSubmittingBooking = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = '✅ 確認送出預約並鎖定營位';
+      });
+    }
+
+    function renderBookingSuccessCard(info) {
+      var card = document.getElementById('bookingSuccessModalCard');
+      var rInfo = info.remittanceInfo || {};
+      var bankName = rInfo.bankName
+        ? (rInfo.bankCode && String(rInfo.bankName).indexOf(rInfo.bankCode) === -1 ? rInfo.bankName + ' (' + rInfo.bankCode + ')' : rInfo.bankName)
+        : APP_STATE.publicInfo.bankName;
+      var bankAccount = rInfo.bankAccount || rInfo.accountNumber || APP_STATE.publicInfo.accountNumber;
+      var bankAccountName = rInfo.bankAccountName || rInfo.accountName || APP_STATE.publicInfo.accountName;
+      var deadlineHours = rInfo.deadlineHours || APP_STATE.publicInfo.paymentDeadlineHours || 72;
+
+      card.style.display = 'block';
+      card.innerHTML =
+        '<div class="section-header">' +
+          '<h2 class="section-title" style="color:var(--green-avail);">🎉 階段一完成：營位已為您保留（待付款）</h2>' +
+          '<span class="dim-badge badge-yellow">⏳ 需於 ' + escapeHtml(String(deadlineHours)) + ' 小時內完成匯款並填寫回報，才算訂單完成</span>' +
+        '</div>' +
+        '<div class="alert-danger alert-box" style="font-weight:700;">' +
+          '⚠️ 重要提示：需於 ' + escapeHtml(String(deadlineHours)) + ' 小時內（到期時間：' + escapeHtml(info.paymentDeadline) + '）完成匯款並至「填寫匯款回報」提交後五碼，才算訂單完成！' +
+        '</div>' +
+        '<div class="form-grid-2col" style="margin-bottom:16px;">' +
+          '<div style="background:#f8fafc; padding:14px; border-radius:8px; border:1px solid #cbd5e1;">' +
+            '<div><strong>訂單編號：</strong><span style="color:var(--red-full); font-weight:800;">' + escapeHtml(info.orderId) + '</span></div>' +
+            '<div><strong>姓名 / 電話：</strong>' + escapeHtml(info.customerName) + ' / ' + escapeHtml(info.customerPhone) + '</div>' +
+            '<div><strong>住宿日期：</strong>' + escapeHtml(info.checkInDate) + ' ～ ' + escapeHtml(info.checkOutDate) + '</div>' +
+            '<div><strong>保留營位：</strong>' + escapeHtml(info.campsites.join('、')) + '</div>' +
+            '<div><strong>應匯款總金額：</strong><strong style="color:var(--red-full); font-size:1.2rem;">NT$ ' + info.totalAmount.toLocaleString() + '</strong></div>' +
+          '</div>' +
+          '<div style="background:#fffbeb; padding:14px; border-radius:8px; border:1px solid #fcd34d;">' +
+            '<div><strong>銀行/郵局：</strong>' + escapeHtml(bankName) + '</div>' +
+            '<div><strong>匯款帳號：</strong><strong>' + escapeHtml(bankAccount) + '</strong></div>' +
+            '<div><strong>戶名：</strong>' + escapeHtml(bankAccountName) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex; flex-wrap:wrap; gap:12px;">' +
+          '<button type="button" class="btn-primary-lg" style="max-width:320px;" onclick="prefillAndSwitchToReport(\'' + escapeHtml(info.customerName) + '\', \'' + escapeHtml(info.customerPhone) + '\')">💳 前往「填寫匯款回報」</button>' +
+          '<button type="button" class="btn-secondary" onclick="prefillAndSwitchToQuery(\'' + escapeHtml(info.customerName) + '\', \'' + escapeHtml(info.customerPhone) + '\')">🔍 前往「訂單狀態查詢」</button>' +
+        '</div>';
+      card.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function prefillAndSwitchToReport(name, phone) {
+      document.getElementById('reportVerifyName').value = name;
+      document.getElementById('reportVerifyPhone').value = phone;
+      switchMainView('report');
+      document.getElementById('btnVerifyReport').click();
+    }
+
+    function prefillAndSwitchToQuery(name, phone) {
+      document.getElementById('queryOrderName').value = name;
+      document.getElementById('queryOrderPhone').value = phone;
+      switchMainView('query');
+      document.getElementById('btnQueryOrders').click();
+    }
+
+    function handleVerifyForReport(event) {
+      event.preventDefault();
+      var name = document.getElementById('reportVerifyName').value.trim();
+      var phone = document.getElementById('reportVerifyPhone').value.replace(/[\s-]/g, '').trim();
+      var container = document.getElementById('reportVerifyResultContainer');
+      var btn = document.getElementById('btnVerifyReport');
+      if (!name || !phone) return;
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 身分核對中...';
+      container.innerHTML = '<div class="alert-info alert-box">正在比對訂位姓名與電話紀錄...</div>';
+
+      callGasApi('apiVerifyGuestForPaymentReport', { customerName: name, customerPhone: phone, name: name, phone: phone }).then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok) {
+          container.innerHTML = renderExpiredOrNotFoundAppealHtml(name, phone, res.message);
+          return;
+        }
+        var d = res.data || {};
+        var orders = Array.isArray(d) ? d : (d.orders || d.pendingOrders || d.matchedOrders || []);
+        if (!orders.length) {
+          container.innerHTML = renderExpiredOrNotFoundAppealHtml(name, phone, '查無相符之待回報訂單紀錄。');
+          return;
+        }
+
+        var html = [];
+        for (var i = 0; i < orders.length; i++) {
+          var norm = normalizeOrderRecord(orders[i]);
+          var isReported = (norm.paymentStatus === '已回報待核帳' || norm.paymentStatus === '已確認付款' || norm.orderStatus === '待核帳' || norm.orderStatus === '已成立' || Boolean(norm.last5Digits));
+
+          if (norm.isExpired && !isReported) {
+            html.push(renderExpiredOrNotFoundAppealHtml(name, phone, '訂單 ' + norm.orderId + ' 已超過 72 小時回報期限。'));
+          } else if (isReported) {
+            html.push(
+              '<div class="order-result-card" style="border-left:5px solid var(--green-avail);">' +
+                '<div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">' +
+                  '<strong style="font-size:1.05rem;">📄 訂單編號：' + escapeHtml(norm.orderId) + '</strong>' +
+                  '<span class="dim-badge badge-green">✅ ' + escapeHtml(norm.paymentStatus) + '（已受防誤刪保護）</span>' +
+                '</div>' +
+                '<div style="margin-top:8px; font-size:0.94rem;">' +
+                  '<div><strong>住宿區間：</strong>' + escapeHtml(norm.checkInDate) + ' 入住 ～ ' + escapeHtml(norm.checkOutDate) + ' 退營｜<strong>營位：</strong>' + escapeHtml(norm.campsitesStr) + '</div>' +
+                  '<div><strong>訂單總金額：</strong><strong style="color:var(--red-full);">NT$ ' + norm.totalAmount.toLocaleString() + '</strong></div>' +
+                  '<div><strong>已回報匯款後五碼：</strong><strong style="color:var(--primary);">' + escapeHtml(norm.last5Digits || '已提交') + '</strong>' +
+                  (norm.paymentReportedAt ? '（回報時間：' + escapeHtml(norm.paymentReportedAt) + '）' : '') + '</div>' +
+                '</div>' +
+              '</div>'
+            );
+          } else {
+            html.push(
+              '<div class="order-result-card" style="border-left:5px solid var(--primary);">' +
+                '<div><strong style="font-size:1.05rem;">📄 訂單編號：' + escapeHtml(norm.orderId) + '</strong> <span class="dim-badge badge-yellow">⏳ 待付款回報</span></div>' +
+                '<div style="margin:8px 0;">住宿：' + escapeHtml(norm.checkInDate) + ' ～ ' + escapeHtml(norm.checkOutDate) + '｜營位：' + escapeHtml(norm.campsitesStr) + '｜應匯金額：<strong style="color:var(--red-full);">NT$ ' + norm.totalAmount.toLocaleString() + '</strong></div>' +
+                '<div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px;">' +
+                  '<input type="text" id="last5_' + escapeHtml(norm.orderId) + '" class="form-control" style="max-width:180px;" maxlength="5" inputmode="numeric" placeholder="輸入匯款後五碼">' +
+                  '<button type="button" class="btn-primary-lg" id="btnSubmitLast5_' + escapeHtml(norm.orderId) + '" style="max-width:220px; min-height:44px;" onclick="submitOrderLast5Digits(\'' + escapeHtml(norm.orderId) + '\', \'' + escapeHtml(name) + '\', \'' + escapeHtml(phone) + '\')">📤 送出後五碼回報</button>' +
+                '</div>' +
+                '<div id="reportFeedback_' + escapeHtml(norm.orderId) + '" style="margin-top:10px;"></div>' +
+              '</div>'
+            );
+          }
+        }
+        container.innerHTML = html.join('');
+      }).catch(function(err) {
+        container.innerHTML = '<div class="alert-danger alert-box">❌ 驗證錯誤：' + escapeHtml(err.message || String(err)) + '</div>';
+      }).finally(function() {
+        btn.disabled = false;
+        btn.textContent = '🔐 驗證身分並載入待回報訂單';
+      });
+    }
+
+    function renderExpiredOrNotFoundAppealHtml(name, phone, reasonMsg) {
+      return '<div class="alert-warning alert-box">' +
+        '<strong>🔍 系統查核提示：</strong>' + escapeHtml(reasonMsg) + '<br><br>' +
+        '🛠️ <strong>【已匯款但超過 72 小時未回報？人工申訴與查帳處理】</strong><br>' +
+        '若您（' + escapeHtml(name) + ' / ' + escapeHtml(phone) + '）確實已完成匯款，請直接透過下方官方 LINE 或撥打營主電話，由營主為您人工調閱帳戶確認：' +
+        '<div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;">' +
+          '<a href="https://line.me/ti/p/@688fsjst" target="_blank" class="btn-contact-action btn-line">💬 聯絡官方 LINE 人工查帳</a>' +
+          '<a href="tel:0935708578" class="btn-contact-action btn-phone">📞 撥打營主電話 0935708578</a>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function submitOrderLast5Digits(orderId, customerName, customerPhone) {
+      var inputEl = document.getElementById('last5_' + orderId);
+      var btnEl = document.getElementById('btnSubmitLast5_' + orderId);
+      var feedbackEl = document.getElementById('reportFeedback_' + orderId);
+      var last5 = (inputEl ? inputEl.value : '').trim();
+
+      if (!/^\d{5}$/.test(last5)) {
+        alert('⚠️ 請輸入完整的 5 位數字匯款帳號後五碼（例如：01234）！');
+        return;
+      }
+
+      btnEl.disabled = true;
+      btnEl.textContent = '⏳ 提交回報中...';
+
+      callGasApi('apiSubmitGuestPaymentReport', {
+        orderId: orderId,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        name: customerName,
+        phone: customerPhone,
+        last5Digits: String(last5),
+        remittanceLast5: String(last5),
+        operationId: generateOperationId('PAY_REP')
+      }).then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok) {
+          feedbackEl.innerHTML = '<div class="alert-danger alert-box">❌ 回報失敗：' + escapeHtml(res.message) + '</div>';
+          btnEl.disabled = false;
+          btnEl.textContent = '📤 送出後五碼回報';
+          return;
+        }
+        var msg = '已通知客服人員進行對帳，將於 12 小時內完成確認 (12小時核帳服務目標)。若您有提供 Email，系統將會寄送付款成功通知。您也可以隨時使用網站的『訂單查詢』功能查看最新狀態。';
+        alert('✅ 回報提交成功！\n\n' + msg);
+        feedbackEl.innerHTML = '<div class="alert-success alert-box">✅ <strong>後五碼【' + escapeHtml(last5) + '】已成功提交！訂單狀態已更新為「待核帳 / 已回報待核帳」。</strong><br>' + msg + '</div>';
+        btnEl.textContent = '✅ 已提交待核帳';
+        if (inputEl) inputEl.disabled = true;
+      }).catch(function(err) {
+        feedbackEl.innerHTML = '<div class="alert-danger alert-box">❌ 錯誤：' + escapeHtml(err.message || String(err)) + '</div>';
+        btnEl.disabled = false;
+        btnEl.textContent = '📤 送出後五碼回報';
+      });
+    }
+
+    function handleQueryOrders(event) {
+      event.preventDefault();
+      var name = document.getElementById('queryOrderName').value.trim();
+      var phone = document.getElementById('queryOrderPhone').value.replace(/[\s-]/g, '').trim();
+      var container = document.getElementById('queryOrderResultContainer');
+      var btn = document.getElementById('btnQueryOrders');
+      if (!name || !phone) return;
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 查詢中...';
+      container.innerHTML = '<div class="alert-info alert-box">正在查詢您的訂單明細與固定價格快照...</div>';
+
+      callGasApi('apiQueryGuestOrderStatus', { customerName: name, customerPhone: phone, name: name, phone: phone }).then(function(raw) {
+        var res = unwrapApiData(raw);
+        if (!res.ok) {
+          container.innerHTML = renderExpiredOrNotFoundAppealHtml(name, phone, res.message);
+          return;
+        }
+        var orders = Array.isArray(res.data) ? res.data : (res.data.orders || []);
+        if (!orders.length) {
+          container.innerHTML = renderExpiredOrNotFoundAppealHtml(name, phone, '目前查無此姓名與電話的訂單紀錄。');
+          return;
+        }
+
+        var html = [];
+        for (var i = 0; i < orders.length; i++) {
+          var norm = normalizeOrderRecord(orders[i]);
+
+          var nightlyHtml = '';
+          if (norm.nightlyBreakdown.length > 0) {
+            var nRows = [];
+            nRows.push('<div class="nightly-detail-list" style="margin-top:10px;">');
+            nRows.push('<div style="font-weight:700; color:var(--primary); margin-bottom:4px;">🔒 成立時價格快照逐晚明細（版本 ' + escapeHtml(norm.ruleVersion) + '）：</div>');
+            for (var n = 0; n < norm.nightlyBreakdown.length; n++) {
+              var ni = norm.nightlyBreakdown[n];
+              var dt = pickDefined(ni.stayDate, ni.date, '');
+              var sid = pickDefined(ni.campsiteId, ni.siteId, '');
+              var dtype = pickDefined(ni.dateType, '');
+              var evName = pickDefined(ni.eventName, '');
+              var src = pickDefined(ni.priceSourceSheetEnum, ni.priceSource, '');
+              var uPrice = pickNumber(ni.unitPrice, ni.price, 0);
+              nRows.push(
+                '<div style="display:flex; justify-content:space-between; border-bottom:1px dotted #e5e7eb; padding:3px 0;">' +
+                  '<span>' + escapeHtml(dt) + '｜營位 <strong>' + escapeHtml(sid) + '</strong>（' + escapeHtml(dtype) + (evName ? '・' + escapeHtml(evName) : '') + ' / ' + escapeHtml(src) + '）</span>' +
+                  '<strong>$' + uPrice.toLocaleString() + '</strong>' +
+                '</div>'
+              );
+            }
+            nRows.push('</div>');
+            nightlyHtml = nRows.join('');
+          }
+
+          var last5Display = norm.last5Digits
+            ? ('<strong style="color:var(--primary); font-size:1.05rem;">' + escapeHtml(norm.last5Digits) + '</strong>' +
+               (norm.paymentReportedAt ? ' <span style="font-size:0.85rem; color:var(--text-muted);">（回報時間：' + escapeHtml(norm.paymentReportedAt) + '）</span>' : ''))
+            : '<span style="color:var(--text-muted);">尚未回報</span>';
+
+          html.push(
+            '<div class="order-result-card">' +
+              '<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid #e5e7eb; padding-bottom:8px;">' +
+                '<strong style="font-size:1.1rem; color:var(--primary-dark);">📄 訂單編號：' + escapeHtml(norm.orderId) + '</strong>' +
+                (norm.pricedAt ? '<span style="font-size:0.82rem; color:var(--text-muted);">快照鎖定時間：' + escapeHtml(norm.pricedAt) + '</span>' : '') +
+              '</div>' +
+              '<div class="status-badges-wrap">' +
+                '<span class="dim-badge ' + getStatusBadgeClass(norm.orderStatus) + '">訂單狀態：' + escapeHtml(norm.orderStatus) + '</span>' +
+                '<span class="dim-badge ' + getStatusBadgeClass(norm.paymentStatus) + '">付款狀態：' + escapeHtml(norm.paymentStatus) + '</span>' +
+                '<span class="dim-badge ' + getStatusBadgeClass(norm.inventoryStatus) + '">庫存狀態：' + escapeHtml(norm.inventoryStatus) + '</span>' +
+                '<span class="dim-badge badge-purple">通知狀態：' + escapeHtml(norm.notificationStatus) + '</span>' +
+              '</div>' +
+              '<div class="form-grid-2col" style="margin-top:10px; font-size:0.95rem;">' +
+                '<div>' +
+                  '<div><strong>住宿區間：</strong>' + escapeHtml(norm.checkInDate) + ' 入住 ～ ' + escapeHtml(norm.checkOutDate) + ' 退營' + (norm.nightsCount ? '（' + escapeHtml(String(norm.nightsCount)) + ' 晚）' : '') + '</div>' +
+                  '<div><strong>預訂營位：</strong>' + escapeHtml(norm.campsitesStr) + '｜<strong>帳篷型態：</strong>' + escapeHtml(norm.tentType) + (norm.largeTentPair !== '無' ? ' (' + escapeHtml(norm.largeTentPair) + ')' : '') + '</div>' +
+                  '<div><strong>人數與車輛：</strong>成人 ' + escapeHtml(String(norm.adults)) + ' / 國小 ' + escapeHtml(String(norm.elementary)) + ' / 幼兒 ' + escapeHtml(String(norm.preschool)) + '｜車輛 ' + escapeHtml(String(norm.totalCars)) + ' 台</div>' +
+                  '<div><strong>已回報匯款後五碼：</strong>' + last5Display + '</div>' +
+                '</div>' +
+                '<div style="background:#f8fafc; padding:10px 14px; border-radius:8px; border:1px solid #e2e8f0;">' +
+                  '<div><strong>基本營位費總計：</strong>$' + norm.baseFee.toLocaleString() + '</div>' +
+                  '<div><strong>加人費用：</strong>$' + norm.extraPersonFee.toLocaleString() + '｜<strong>加車費用：</strong>$' + norm.extraCarFee.toLocaleString() + '</div>' +
+                  '<div style="margin-top:4px;"><strong>固定價格快照總金額：</strong><strong style="color:var(--red-full); font-size:1.2rem;">NT$ ' + norm.totalAmount.toLocaleString() + '</strong></div>' +
+                '</div>' +
+              '</div>' +
+              nightlyHtml +
+            '</div>'
+          );
+        }
+        container.innerHTML = html.join('');
+      }).catch(function(err) {
+        container.innerHTML = '<div class="alert-danger alert-box">❌ 查詢失敗：' + escapeHtml(err.message || String(err)) + '</div>';
+      }).finally(function() {
+        btn.disabled = false;
+        btn.textContent = '🔍 立即查詢訂單進度';
+      });
+    }
+
+    function formatDateYMD(d) {
+      var y = d.getFullYear();
+      var m = String(d.getMonth() + 1);
+      if (m.length < 2) m = '0' + m;
+      var day = String(d.getDate());
+      if (day.length < 2) day = '0' + day;
+      return y + '-' + m + '-' + day;
+    }
+
+    function parseDateYMD(str) {
+      var parts = String(str).split('-');
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+  </script>
 </body>
 </html>
