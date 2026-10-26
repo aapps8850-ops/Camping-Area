@@ -1597,6 +1597,7 @@
      * - 在 GAS 內開啟時使用 google.script.run
      * - 在 GitHub Pages / FB / LINE / Safari / Chrome 開啟時，自動透過 fetch 與 GAS 後端即時雙向同步
      */
+    // 【替換後的新寫法：支援 GitHub Pages 與 GAS 雙棲同步】
     function callGasApi(fnName, params) {
       return new Promise(function(resolve, reject) {
         if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -1610,6 +1611,23 @@
           }
           return;
         }
+
+        var gasWebAppUrl = "https://script.google.com/macros/s/AKfycbxFKXeLKJblEKUl55FvOAU87BHMDviImgrta6LroZs9hnn27mnfZJQkFzsRurAXDYdD/exec";
+        fetch(gasWebAppUrl, {
+          method: 'POST',
+          redirect: 'follow',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            source: 'GAS_FRONTEND_API',
+            fnName: fnName,
+            params: params !== undefined ? params : {}
+          })
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) { resolve(data); })
+        .catch(function(err) { reject(err); });
+      });
+    }
 
         var apiUrl = window.__GAS_WEB_APP_URL;
         fetch(apiUrl, {
