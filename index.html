@@ -5,10 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   <title>粗坑露營區｜線上預約訂位・匯款回報・訂單查詢</title>
   <script>
-    // 綁定您的 Google Apps Script 後端正式部署網址
-    window.__GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxFKXeLKJblEKUl55FvOAU87BHMDviImgrta6LroZs9hnn27mnfZJQkFzsRurAXDYdD/exec";
-
-    // 1. 預先定義圖片載入與備援切換函式於 <head>，防止圖片極速載入時發生 ReferenceError
+    // 預先定義圖片載入與備援切換函式，防止圖片極速載入時發生 ReferenceError
     window.__mapFallbackAttempted = false;
     window.handleMapImageLoaded = function() {
       var warn = document.getElementById('mapFallbackWarning');
@@ -29,56 +26,8 @@
       if (warn) warn.style.display = 'block';
     };
 
-    // 2. 伺服器端 Sheet 價格 0 秒直出注入區 (若於 GAS 內開啟則 0 秒生效；若於 GitHub Pages 開啟則自動跳過並由 API 即時載入)
     window.__SERVER_INJECTED_RATES = null;
   </script>
-  <!--<?!= (function() {
-    try {
-      var ss = (typeof getTargetSpreadsheet_ === 'function') ? getTargetSpreadsheet_() : SpreadsheetApp.getActiveSpreadsheet();
-      if (!ss) return '';
-      var sh = ss.getSheetByName('營區設定與價格');
-      if (!sh) return '';
-      var vals = sh.getDataRange().getValues();
-      var sites = {};
-      var zones = {};
-      var rules = {};
-      for (var r = 1; r < vals.length; r++) {
-        var row = vals[r];
-        var sid = String(row[0] || '').trim().toUpperCase();
-        if (/^[ABCD][1-6]$/.test(sid)) {
-          var z = sid.charAt(0);
-          var wk = Number(String(row[5] || '').replace(/[,$元]/g, ''));
-          var hol = Number(String(row[6] || '').replace(/[,$元]/g, ''));
-          var stStr = String(row[9] || '啟用').trim();
-          var enabled = !(stStr === '停用' || stStr === '關閉' || stStr.toUpperCase() === 'FALSE');
-          if (!isNaN(wk) && wk > 0 && !isNaN(hol) && hol > 0) {
-            sites[sid] = { weekday: wk, holiday: hol, enabled: enabled };
-            if (!zones[z] && enabled) {
-              zones[z] = { weekday: wk, holiday: hol };
-            }
-          }
-        }
-        var mKey = String(row[12] || '').trim();
-        var nVal = row[13];
-        if (mKey && nVal !== null && nVal !== undefined && nVal !== '') {
-          if (Object.prototype.toString.call(nVal) === '[object Date]') {
-            rules[mKey] = Utilities.formatDate(nVal, 'Asia/Taipei', 'HH:mm');
-          } else {
-            rules[mKey] = String(nVal).trim();
-          }
-        }
-      }
-      var pUnit = (rules.EXTRA_PERSON_FEE !== undefined && rules.EXTRA_PERSON_FEE !== '' && !isNaN(Number(rules.EXTRA_PERSON_FEE))) ? Number(rules.EXTRA_PERSON_FEE) : 200;
-      var cUnit = (rules.EXTRA_CAR_FEE !== undefined && rules.EXTRA_CAR_FEE !== '' && !isNaN(Number(rules.EXTRA_CAR_FEE))) ? Number(rules.EXTRA_CAR_FEE) : 200;
-      return '-->' + '<script>window.__SERVER_INJECTED_RATES=' + JSON.stringify({
-        sites: sites,
-        zones: zones,
-        extraPersonUnitFee: pUnit,
-        extraCarUnitFee: cUnit,
-        rules: rules
-      }) + ';</script>' + '<!--';
-    } catch (e) { return ''; }
-  })() ?>-->
   <style>
     :root {
       --primary: #1f4e3d;
@@ -396,7 +345,7 @@
       gap: 12px;
     }
 
-    /* 步驟二：1.jpg 配置圖與選位 */
+    /* 步驟二：看圖選位 */
     .tent-mode-selector {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -481,7 +430,6 @@
       display: block;
     }
 
-    /* 營位點擊熱區 */
     .site-hotspot {
       position: absolute;
       transform: translate(-50%, -50%);
@@ -835,7 +783,7 @@
         </div>
       </section>
 
-      <!-- 步驟二：1.jpg 看圖選位 -->
+      <!-- 步驟二：看圖選位 -->
       <section class="section-card" id="step2Section">
         <div class="section-header">
           <h2 class="section-title"><span class="step-badge">步驟二</span> 看圖直覺選位（點擊配置圖圓圈或下方清單）</h2>
@@ -1301,49 +1249,27 @@
       }
     }
 
-    function applyInjectedRatesPayload(sourceData) {
-      if (!sourceData || typeof sourceData !== 'object') return;
-      for (var i = 0; i < ALL_SITES_META.length; i++) {
-        var s = ALL_SITES_META[i];
-        var z = s.id.charAt(0);
-        if (sourceData.sites && sourceData.sites[s.id]) {
-          if (sourceData.sites[s.id].weekday > 0) s.weekday = sourceData.sites[s.id].weekday;
-          if (sourceData.sites[s.id].holiday > 0) s.holiday = sourceData.sites[s.id].holiday;
-          s.enabled = (sourceData.sites[s.id].enabled !== false);
-          if (s.enabled === false) {
-            APP_STATE.siteAvailability[s.id] = 'OCCUPIED';
-          }
-        } else if (sourceData.zones && sourceData.zones[z]) {
-          if (sourceData.zones[z].weekday > 0) s.weekday = sourceData.zones[z].weekday;
-          if (sourceData.zones[z].holiday > 0) s.holiday = sourceData.zones[z].holiday;
-        }
-      }
-      if (sourceData.extraPersonUnitFee !== undefined || sourceData.extraCarUnitFee !== undefined) {
-        updateExtraUnitFeeUI(sourceData.extraPersonUnitFee, sourceData.extraCarUnitFee);
-      }
-      if (sourceData.rules) {
-        applyCampRulesToUI(sourceData.rules);
-      }
-      refreshTopZonePriceCardsUI();
-      saveVerifiedRatesToCache();
-    }
-
     (function initZeroDelayRates() {
-      var sourceData = window.__SERVER_INJECTED_RATES;
-      if (!sourceData) {
-        try {
-          var raw = localStorage.getItem(VERIFIED_PRICE_CACHE_KEY);
-          if (raw) {
-            var parsed = JSON.parse(raw);
-            if (parsed && parsed.savedAt && (Date.now() - Number(parsed.savedAt) < 30 * 60 * 1000)) {
-              sourceData = parsed;
+      try {
+        var raw = localStorage.getItem(VERIFIED_PRICE_CACHE_KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && parsed.savedAt && (Date.now() - Number(parsed.savedAt) < 30 * 60 * 1000)) {
+            for (var i = 0; i < ALL_SITES_META.length; i++) {
+              var s = ALL_SITES_META[i];
+              var z = s.id.charAt(0);
+              if (parsed.zones && parsed.zones[z]) {
+                if (parsed.zones[z].weekday > 0) s.weekday = parsed.zones[z].weekday;
+                if (parsed.zones[z].holiday > 0) s.holiday = parsed.zones[z].holiday;
+              }
             }
+            if (parsed.extraPersonUnitFee !== undefined || parsed.extraCarUnitFee !== undefined) {
+              updateExtraUnitFeeUI(parsed.extraPersonUnitFee, parsed.extraCarUnitFee);
+            }
+            refreshTopZonePriceCardsUI();
           }
-        } catch (e) {}
-      }
-      if (sourceData) {
-        applyInjectedRatesPayload(sourceData);
-      }
+        }
+      } catch (e) {}
     })();
 
     function probeAllZonesLatestPricesOnBoot() {
@@ -1593,11 +1519,8 @@
     }
 
     /**
-     * 核心雙模通訊引擎：
-     * - 在 GAS 內開啟時使用 google.script.run
-     * - 在 GitHub Pages / FB / LINE / Safari / Chrome 開啟時，自動透過 fetch 與 GAS 後端即時雙向同步
+     * 前後端通訊轉發器：使用 fetch POST 直接與 GAS 雙向同步
      */
-    // 【替換後的新寫法：支援 GitHub Pages 與 GAS 雙棲同步】
     function callGasApi(fnName, params) {
       return new Promise(function(resolve, reject) {
         if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -1626,40 +1549,6 @@
         .then(function(response) { return response.json(); })
         .then(function(data) { resolve(data); })
         .catch(function(err) { reject(err); });
-      });
-    }
-
-        var apiUrl = window.__GAS_WEB_APP_URL;
-        fetch(apiUrl, {
-          method: 'POST',
-          redirect: 'follow',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          },
-          body: JSON.stringify({
-            source: 'GAS_FRONTEND_API',
-            action: fnName,
-            fnName: fnName,
-            params: params !== undefined ? params : {}
-          })
-        })
-        .then(function(response) {
-          return response.text();
-        })
-        .then(function(text) {
-          var trimmed = String(text || '').trim();
-          if (trimmed.charAt(0) === '<') {
-            throw new Error('GAS 後端尚未加入 API 轉發程式碼或尚未更新部署版本。');
-          }
-          var json = JSON.parse(trimmed);
-          if (json && json._injectedRates) {
-            applyInjectedRatesPayload(json._injectedRates);
-          }
-          resolve(json);
-        })
-        .catch(function(err) {
-          reject(err);
-        });
       });
     }
 
@@ -2215,7 +2104,7 @@
       container.innerHTML = html.join('');
     }
 
-function populatePeopleAndCarSelects(totalTents) {
+    function populatePeopleAndCarSelects(totalTents) {
       var tents = Math.max(1, Number(totalTents) || 1);
       var adultSel = document.getElementById('selectAdults');
       var elemSel = document.getElementById('selectElementary');
